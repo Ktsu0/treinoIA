@@ -1,410 +1,182 @@
 <!DOCTYPE html>
 <html lang="pt-br">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Campo Minado PRO + IA</title>
-        <style>
-        :root {
-            --primary: #4a69bd;
-            --secondary: #1e3799;
-            --bg: #f0f2f5;
-            --cell-bg: #d1d8e0;
-            --cell-rev: #ffffff;
-            --danger: #eb4d4b;
-            --success: #6ab04c;
-            --ia-color: #8e44ad;
-        }
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Campo Minado PRO | Treinamento de IA</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+</head>
+<body>
 
-        body {
-            font-family: 'Segoe UI', Roboto, sans-serif;
-            background-color: var(--bg);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            margin: 0;
-            padding: 20px;
-            color: #2f3542;
-        }
+    <header>
+        <h1>Campo Minado <span style="color: var(--ia-color)">Neuro-Core</span></h1>
+    </header>
 
-        h1 { margin-bottom: 10px; color: var(--secondary); text-transform: uppercase; letter-spacing: 2px; }
-
-        .menu { margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
-        
-        button {
-            padding: 10px 20px;
-            border: none;
-            border-radius: 8px;
-            background: var(--primary);
-            color: white;
-            font-weight: bold;
-            cursor: pointer;
-            transition: transform 0.2s, background 0.2s;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-        button:hover { background: var(--secondary); transform: translateY(-2px); }
-        
-        .btn-ia { background: var(--ia-color); }
-        .btn-ia:hover { background: #6c5ce7; }
-
-        .stats-bar {
-            display: flex;
-            gap: 20px;
-            background: white;
-            padding: 15px 30px;
-            border-radius: 50px;
-            margin-bottom: 20px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
-            font-size: 1.1rem;
-        }
-
-        #grid {
-            display: grid;
-            gap: 4px;
-            padding: 10px;
-            background: #a5b1c2;
-            border-radius: 8px;
-            box-shadow: inset 0 0 10px rgba(0,0,0,0.2);
-            margin-bottom: 30px;
-        }
-
-        .cell {
-            width: 35px;
-            height: 35px;
-            background: var(--cell-bg);
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 900;
-            cursor: pointer;
-            transition: background 0.1s;
-        }
-
-        .cell.revealed { background: var(--cell-rev); box-shadow: none; cursor: default; }
-        .cell.mine { background: var(--danger); }
-        .cell.flagged { color: #eb4d4b; }
-        .cell.ia-target { outline: 3px solid var(--ia-color); z-index: 10; }
-
-        .n1 { color: #2980b9; } .n2 { color: #27ae60; } .n3 { color: #e67e22; }
-        .n4 { color: #8e44ad; } .n5 { color: #c0392b; }
-
-        .overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.7); display: none;
-            justify-content: center; align-items: center; z-index: 100;
-        }
-        .modal {
-            background: white; padding: 30px; border-radius: 15px;
-            text-align: center; max-width: 400px; width: 90%;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
-        }
-
-        .ranking-container {
-            width: 100%; max-width: 500px; background: white;
-            padding: 20px; border-radius: 12px; box-shadow: 0 5px 15px rgba(0,0,0,0.05);
-        }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: center; }
-
-        #ia-status {
-            margin-top: 10px;
-            font-weight: bold;
-            color: var(--ia-color);
-        }
-    </style>
-    </head>
-    <body>
-
-        <h1>Campo Minado <span style="color: var(--ia-color)">AI
-                Edition</span></h1>
-
+    <main>
         <div class="menu">
-            <button onclick="startGame('facil')">Fácil</button>
-            <button onclick="startGame('medio')">Médio</button>
-            <button onclick="startGame('dificil')">Difícil</button>
-            <button class="btn-ia" onclick="trainIA()">🧠 Treinar IA </button>
+            <button onclick="startGame('facil')">Fácil (9x9)</button>
+            <button onclick="startGame('medio')">Médio (16x16)</button>
+            <button onclick="startGame('dificil')">Difícil (30x16)</button>
+        </div>
+
+        <div class="ai-controls">
+            <button class="btn-ia" onclick="trainIA()">🧠 Treinar IA</button>
+            <button id="btn-genetic" class="btn-ia" style="background: #9b59b6;" onclick="startGeneticTraining()">🧬 Escolinha Genética</button>
+            <button id="pause-btn" class="btn-pause" style="display:none" onclick="togglePause()">⏸️ Pausar</button>
+            <button class="btn-download" onclick="exportBrain()">📥 Baixar Cérebro</button>
+            <input type="file" id="brain-upload" accept=".json" style="display:none" onchange="importBrain(this.files[0])">
+            <button class="btn-upload" onclick="document.getElementById('brain-upload').click()">📤 Carregar</button>
+            <button class="btn-reset" onclick="resetBrain()">🗑️ Resetar</button>
+            <label class="turbo-label">
+                <input type="checkbox" id="turbo-mode"> 🚀 Modo Turbo
+            </label>
+            <div class="cpu-control">
+                <label>⚡ CPU: <span id="cpu-val">20</span></label>
+                <input type="range" id="cpu-slider" min="1" max="100" value="20" oninput="CPU_INTENSITY = this.value; document.getElementById('cpu-val').innerText = this.value">
+            </div>
         </div>
 
         <div class="stats-bar">
-            <span>⏱️ <span id="timer">0</span>s</span>
-            <span>💣 <span id="mine-count">0</span></span>
-            <span id="ia-status">Modo: Humano</span>
+            <div id="stat-timer">⏱️ <span id="timer">0</span>s</div>
+            <div id="stat-mines">💣 <span id="mine-count">0</span></div>
+            <div id="ia-status">Modo: Humano</div>
+        </div>
+
+
+        <div class="training-progress">
+            <div class="progress-fill"></div>
+        </div>
+
+        <div class="training-stats">
+            <div class="stat-item">
+                <span class="stat-label">Ciclos</span>
+                <span class="stat-value" id="cycle-count">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Vitórias</span>
+                <span class="stat-value" id="win-count">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Taxa</span>
+                <span class="stat-value" id="win-rate">0%</span>
+            </div>
         </div>
 
         <div id="grid"></div>
 
         <div class="ranking-container">
-            <h3 style="margin: 0; text-align: center;">🏆 Top 10 (<span
-                    id="diff-label">-</span>)</h3>
+            <h3 style="margin: 0; text-align: center; color: var(--secondary)">
+                🏆 Melhores Tempos - <span id="diff-label">FÁCIL</span>
+            </h3>
             <table id="leaderboard">
-                <thead><tr><th>Pos</th><th>Tempo</th><th>Data</th></tr></thead>
-                <tbody></tbody>
+                <thead>
+                    <tr>
+                        <th>Posição</th>
+                        <th>Tempo</th>
+                        <th>Data</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="3">Sem recordes ainda</td></tr>
+                </tbody>
             </table>
         </div>
+    </main>
 
-        <div id="modal-overlay" class="overlay">
-            <div id="modal-content" class="modal">
-                <h2 id="modal-title">Resultado</h2>
-                <p id="modal-msg"></p>
-                <button onclick="closeModal()">OK</button>
-            </div>
+    <!-- Modal de Resultado -->
+    <div id="modal-overlay" class="overlay">
+        <div id="modal-content" class="modal">
+            <h2 id="modal-title">Resultado</h2>
+            <p id="modal-msg"></p>
+            <button onclick="closeModal()">Jogar Novamente</button>
         </div>
+    </div>
 
-        <script
-            src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0"></script>
-
-        <script>
-let board = [], rows, cols, mines, timerInterval, seconds = 0, isGameOver = false, activeDiff = '';
-let trainingMode = false;
-
-const config = {
-    facil: { r: 9, c: 9, m: 10 },
-    medio: { r: 16, c: 16, m: 40 },
-    dificil: { r: 16, c: 30, m: 99 }
-};
-
-// --- LÓGICA DO JOGO ---
-function startGame(level) {
-    activeDiff = level;
-    const c = config[level];
-    rows = c.r; cols = c.c; mines = c.m;
-    document.getElementById('diff-label').innerText = level.toUpperCase();
-    resetGame();
-    renderRanking();
-    if(!trainingMode) closeModal();
-}
-
-function resetGame() {
-    clearInterval(timerInterval);
-    seconds = 0; isGameOver = false;
-    document.getElementById('timer').innerText = "0";
-    document.getElementById('mine-count').innerText = mines;
-    const grid = document.getElementById('grid');
-    grid.innerHTML = '';
-    grid.style.gridTemplateColumns = `repeat(${cols}, 35px)`;
-
-    board = Array.from({ length: rows }, () => 
-        Array.from({ length: cols }, () => ({ mine: false, revealed: false, flagged: false, count: 0 }))
-    );
-
-    let mPlanted = 0;
-    while(mPlanted < mines) {
-        let r = Math.floor(Math.random()*rows), c = Math.floor(Math.random()*cols);
-        if(!board[r][c].mine) { board[r][c].mine = true; mPlanted++; }
-    }
-
-    for(let r=0; r<rows; r++) {
-        for(let c=0; c<cols; c++) {
-            if(board[r][c].mine) continue;
-            let count = 0;
-            for(let i=-1; i<=1; i++) {
-                for(let j=-1; j<=1; j++) if(board[r+i]?.[c+j]?.mine) count++;
-            }
-            board[r][c].count = count;
-        }
-    }
-
-    for(let r=0; r<rows; r++) {
-        for(let c=0; c<cols; c++) {
-            const el = document.createElement('div');
-            el.classList.add('cell');
-            el.id = `cell-${r}-${c}`;
-            el.addEventListener('click', () => handleClick(r, c));
-            el.addEventListener('contextmenu', (e) => { e.preventDefault(); handleRightClick(r, c); });
-            grid.appendChild(el);
-        }
-    }
-}
-
-// FUNÇÃO QUE FALTAVA NO SEU CÓDIGO
-function handleRightClick(r, c) {
-    if (isGameOver || board[r][c].revealed) return;
-    const el = document.getElementById(`cell-${r}-${c}`);
-    board[r][c].flagged = !board[r][c].flagged;
-    el.classList.toggle('flagged');
-    el.innerText = board[r][c].flagged ? "🚩" : "";
-}
-
-function handleClick(r, c) {
-    if(isGameOver || board[r][c].revealed || board[r][c].flagged) return "invalid";
-    if(seconds === 0) startTimer();
-
-    if(board[r][c].mine) {
-        revealAllMines();
-        if(!trainingMode) showModal('lose');
-        return "mine";
-    }
-
-    reveal(r, c);
-    if(checkWin()) {
-        if(!trainingMode) showModal('win');
-        return "win";
-    }
-    return "safe";
-}
-
-function reveal(r, c) {
-    if(r<0 || r>=rows || c<0 || c>=cols || board[r][c].revealed) return;
-    board[r][c].revealed = true;
-    const el = document.getElementById(`cell-${r}-${c}`);
-    if(el) {
-        el.classList.add('revealed');
-        if(board[r][c].count > 0) {
-            el.innerText = board[r][c].count;
-            el.classList.add(`n${board[r][c].count}`);
-        } else {
-            for(let i=-1; i<=1; i++) {
-                for(let j=-1; j<=1; j++) reveal(r+i, c+j);
-            }
-        }
-    }
-}
-
-function checkWin() {
-    const revealed = board.flat().filter(c => c.revealed).length;
-    if(revealed === (rows * cols) - mines) {
-        isGameOver = true;
-        clearInterval(timerInterval);
-        return true;
-    }
-    return false;
-}
-
-function revealAllMines() {
-    isGameOver = true;
-    clearInterval(timerInterval);
-    board.forEach((row, r) => row.forEach((cell, c) => {
-        if(cell.mine) {
-            const el = document.getElementById(`cell-${r}-${c}`);
-            if(el) { el.classList.add('mine'); el.innerText = "💣"; }
-        }
-    }));
-}
-
-function startTimer() { timerInterval = setInterval(() => { seconds++; document.getElementById('timer').innerText = seconds; }, 1000); }
-function showModal(type) { 
-    document.getElementById('modal-overlay').style.display = 'flex';
-    document.getElementById('modal-title').innerText = type === 'win' ? "🔥 VITÓRIA!" : "💥 BUM!";
-    document.getElementById('modal-msg').innerText = type === 'win' ? `Tempo: ${seconds}s` : "Tente novamente!";
-}
-function closeModal() { document.getElementById('modal-overlay').style.display = 'none'; if(isGameOver) resetGame(); }
-function renderRanking() { /* Sua lógica de ranking */ }
-
-// --- IA CORRIGIDA ---
-class MinesweeperBrain {
-    constructor() {
-        this.model = tf.sequential();
-        // Camada 1: Entrada (81 células) -> Escondida (128 neurônios)
-        this.model.add(tf.layers.dense({ units: 128, activation: 'relu', inputShape: [81] }));
-        // Camada 2: Escondida (64 neurônios)
-        this.model.add(tf.layers.dense({ units: 64, activation: 'relu' }));
-        // Camada 3: Saída (162 ações possíveis: 81 cliques + 81 bandeiras)
-        this.model.add(tf.layers.dense({ units: 162, activation: 'linear' }));
-        
-        this.model.compile({ optimizer: 'adam', loss: 'meanSquaredError' });
-    }
-
-    getState() {
-    return board.flat().map(c => {
-        if (c.revealed) return c.count / 8; // Vê o número (0 a 1)
-        if (c.flagged) return 1;            // Vê a bandeira como valor máximo
-        return -1;                          // Vê como fechado
-    });
-}
-
-    async predictAction(state) {
-        return tf.tidy(() => {
-            const prediction = this.model.predict(tf.tensor2d([state]));
-            return prediction.argMax(-1).dataSync()[0];
-        });
-    }
-}
-
-const brain = new MinesweeperBrain();
-
-async function trainIA() {
-    trainingMode = true;
-    const statusEl = document.getElementById('ia-status');
-    let epsilon = 0.5; // Chance inicial de chutar aleatoriamente
+    <!-- Bibliotecas e Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0"></script>
+    <script src="game.js"></script>
+    <script src="ia.js"></script>
+    <script src="genetic.js"></script>
     
-    let statesBuffer = [];
-    let targetsBuffer = [];
-
-    for(let i = 0; i < 200; i++) {
-        statusEl.innerText = `Ciclo ${i+1}/200 (Treinando Lote)`;
-        startGame('facil');
-        let episodeReward = 0;
-
-        while(!isGameOver) {
-            const state = brain.getState();
-            let actionIdx;
-
-            // Decisão (IA decide o que fazer)
-            if (Math.random() < epsilon) {
-                actionIdx = Math.floor(Math.random() * 162);
-            } else {
-                const prediction = brain.model.predict(tf.tensor2d([state]));
-                const data = await prediction.data();
-                actionIdx = data.indexOf(Math.max(...data));
-            }
-
-            // Identifica se é clique ou bandeira
-            const isFlagAction = actionIdx >= 81;
-            const targetCellIdx = isFlagAction ? actionIdx - 81 : actionIdx;
-            const r = Math.floor(targetCellIdx / 9);
-            const c = targetCellIdx % 9;
+    <script>
+        // Inicialização
+        window.onload = async () => {
+            startGame('facil');
             
-            let reward = 0;
-            const cell = board[r][c];
-
-            // EXECUÇÃO E RECOMPENSA
-            if (isFlagAction) {
-                if (cell.revealed || cell.flagged) {
-                    reward = -10; 
-                } else {
-                    handleRightClick(r, c);
-                    reward = cell.mine ? 15 : -10;
-                }
-            } else {
-                let result = handleClick(r, c);
-                if(result === "mine") reward = -12;
-                else if(result === "safe") reward = 4;
-                else if(result === "win") reward = 50;
-                else reward = -5;
-            }
-
-            // PREPARAÇÃO DO TREINO (COLETA DE DADOS)
-            const currentPredictions = brain.model.predict(tf.tensor2d([state]));
-            const labelsArray = Array.from(await currentPredictions.data());
-            labelsArray[actionIdx] = reward;
-
-            statesBuffer.push(state);
-            targetsBuffer.push(labelsArray);
-
-            // TREINAMENTO EM LOTE (A mágica acontece aqui)
-            if (statesBuffer.length >= 32) {
-                const xs = tf.tensor2d(statesBuffer);
-                const ys = tf.tensor2d(targetsBuffer);
-                await brain.model.fit(xs, ys, { epochs: 1, verbose: 0 });
+            let loaded = false;
+            
+            // 1. Tenta carregar do LocalStorage (mais recente)
+            try {
+                const savedModel = await tf.loadLayersModel('localstorage://minesweeper-model');
+                const metadata = JSON.parse(localStorage.getItem('minesweeper-metadata') || '{}');
                 
-                statesBuffer = [];
-                targetsBuffer = [];
-                xs.dispose();
-                ys.dispose();
+                if(savedModel && metadata) {
+                    aiBrain.model = savedModel;
+                    aiBrain.epsilon = metadata.epsilon || 0.2;
+                    currentCycle = metadata.currentCycle || 0;
+                    totalWins = metadata.totalWins || 0;
+                    
+                    updateStats();
+                    document.getElementById('ia-status').innerText = `Cérebro Carregado! (${currentCycle} ciclos)`;
+                    console.log("✅ Modelo carregado do LocalStorage!");
+                    console.log(`📊 Ciclos: ${currentCycle} | Vitórias: ${totalWins}`);
+                    loaded = true;
+                }
+            } catch(e) {
+                console.log("ℹ️ LocalStorage vazio.");
             }
-
-            episodeReward += reward;
-            await new Promise(res => setTimeout(res, 1)); // Velocidade máxima
-        }
-        // Reduz epsilon: ela chuta menos e usa mais o cérebro com o tempo
-        epsilon = Math.max(0.01, epsilon * 0.95);
-        console.log(`Ciclo ${i+1} finalizado. Epsilon: ${epsilon.toFixed(2)}`);
-    }
-    statusEl.innerText = "IA Treinada!";
-    trainingMode = false;
-}
-startGame('facil');
-</script>
-    </body>
+            
+            // 2. Se não houver no LocalStorage, tenta carregar brain-data.json do projeto
+            if (!loaded) {
+                try {
+                    const response = await fetch('brain-data.json');
+                    const brainData = await response.json();
+                    
+                    if (brainData.modelTopology && brainData.weights && brainData.weights.length > 0) {
+                        // Recria o cérebro com as dimensões corretas
+                        aiBrain = new MinesweeperAI(brainData.metadata.rows, brainData.metadata.cols);
+                        
+                        // Restaura metadados
+                        aiBrain.epsilon = brainData.metadata.epsilon;
+                        currentCycle = brainData.metadata.currentCycle || 0;
+                        totalWins = brainData.metadata.totalWins || 0;
+                        
+                        // Restaura pesos do modelo
+                        const weightValues = brainData.weights.map(w => {
+                            if (w.shape && w.data) {
+                                // Novo formato com shape
+                                return tf.tensor(w.data, w.shape);
+                            } else {
+                                // Formato antigo (compatibilidade)
+                                return tf.tensor(w);
+                            }
+                        });
+                        aiBrain.model.setWeights(weightValues);
+                        weightValues.forEach(w => w.dispose());
+                        
+                        // CRÍTICO: Recompila o modelo após carregar os pesos
+                        aiBrain.model.compile({
+                            optimizer: tf.train.adam(aiBrain.learningRate),
+                            loss: "meanSquaredError",
+                        });
+                        
+                        updateStats();
+                        document.getElementById('ia-status').innerText = `Cérebro do Projeto Carregado! (${currentCycle} ciclos)`;
+                        console.log("✅ Modelo carregado de brain-data.json!");
+                        console.log(`📊 Ciclos: ${currentCycle} | Vitórias: ${totalWins}`);
+                        loaded = true;
+                    }
+                } catch(e) {
+                    console.log("ℹ️ brain-data.json não encontrado ou vazio. Começando do zero.");
+                }
+            }
+            
+            // Mostra painel de estatísticas se houver dados
+            if (currentCycle > 0) {
+                document.querySelector('.training-stats').classList.add('active');
+            }
+        };
+    </script>
+</body>
 </html>
