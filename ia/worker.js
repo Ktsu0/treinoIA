@@ -73,25 +73,53 @@ class WorkerMinesweeper {
     const r = Math.floor(index / this.cols);
     const c = index % this.cols;
 
-    if (this.board[r][c].revealed) return { reward: -50, done: false };
+    const cellsRevealedBefore = this.board
+      .flat()
+      .filter((x) => x.revealed).length;
+    const currentFlags = this.board.flat().filter((x) => x.flagged).length;
+
+    if (this.board[r][c].revealed) return { reward: -10, done: false };
+
     if (isFlag) {
       if (this.board[r][c].flagged) {
+        const wasCorrect = this.board[r][c].mine;
         this.board[r][c].flagged = false;
-        return { reward: -5, done: false };
+        // Se desmarcar mina correta: punição(-20). Se desmarcar erro: recompensa(+5)
+        return { reward: wasCorrect ? -20 : 5, done: false };
       }
       this.board[r][c].flagged = true;
-      return { reward: 0.5, done: false };
+
+      if (this.board[r][c].mine) {
+        return { reward: 50, done: false };
+      } else {
+        // ANTI-SPAM: Penalidade progressiva igual ao ia.js
+        const flagPenalty = 20 + currentFlags * 5;
+        return { reward: -flagPenalty, done: false };
+      }
     }
-    if (this.board[r][c].flagged) return { reward: -50, done: false };
-    if (this.board[r][c].mine) return { reward: -100, done: true };
+
+    if (this.board[r][c].flagged) return { reward: -10, done: false };
+    if (this.board[r][c].mine) return { reward: -1000, done: true }; // MORTE
 
     this.reveal(r, c);
-    const wins =
-      this.board.flat().filter((x) => x.revealed).length ===
-      this.rows * this.cols - this.mines;
-    if (wins) return { reward: 2000, done: true, win: true };
 
-    return { reward: 15, done: false };
+    const cellsRevealedAfter = this.board
+      .flat()
+      .filter((x) => x.revealed).length;
+    const cellsRevealed = cellsRevealedAfter - cellsRevealedBefore;
+
+    const wins = cellsRevealedAfter === this.rows * this.cols - this.mines;
+    if (wins) {
+      // REBALANCEADO: Bônus de vitória + eficiência
+      const moves = this.board
+        .flat()
+        .filter((x) => x.revealed || x.flagged).length;
+      const efficiency = numCells / Math.max(moves, 1);
+      return { reward: 2000 + efficiency * 100, done: true, win: true };
+    }
+
+    // REBALANCEADO: Recompensa proporcional ao progresso
+    return { reward: 5 + cellsRevealed * 3, done: false };
   }
 
   reveal(r, c) {
@@ -168,20 +196,37 @@ self.onmessage = async function (e) {
         // OTIMIZAÇÃO CRÍTICA: USAR TIDY + DATASYNC
         // Tidy limpa memória da GPU/CPU imediatamente
         // dataSync força a thread a esperar o resultado (CPU não dorme)
+        // VALIDAÇÃO: Escolhe ação válida (sincronizado com ia.js)
         const action = tf.tidy(() => {
           const state = game.getStateTensor();
           const pred = model.predict(state);
-          const data = pred.dataSync(); // <--- O segredo da performance CPU
+          const data = pred.dataSync();
 
           const flat = game.board.flat();
-          // Mascara (manual é mais rápido que tensor ops aqui)
+          const validActions = [];
+
+          // Constrói lista de ações válidas e mascara inválidas
           for (let k = 0; k < flat.length; k++) {
-            if (flat[k].revealed) {
-              data[k] = -Infinity;
-              data[k + flat.length] = -Infinity;
+            if (!flat[k].revealed) {
+              validActions.push(k); // Pode clicar
+              validActions.push(k + flat.length); // Pode marcar/desmarcar
+            } else {
+              data[k] = -Infinity; // Não pode clicar em revelado
+              data[k + flat.length] = -Infinity; // Não pode marcar revelado
             }
           }
-          return data.indexOf(Math.max(...data));
+
+          // Encontra melhor ação válida
+          let bestAction = 0;
+          let bestValue = -Infinity;
+          for (let i = 0; i < data.length; i++) {
+            if (data[i] > bestValue && validActions.includes(i)) {
+              bestValue = data[i];
+              bestAction = i;
+            }
+          }
+
+          return bestAction;
         });
 
         const res = game.step(action);

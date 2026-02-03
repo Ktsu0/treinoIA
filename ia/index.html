@@ -106,31 +106,14 @@
             
             let loaded = false;
             
-            // 1. Tenta carregar do LocalStorage (mais recente)
+            // 1. Tenta carregar brain-data.json do projeto (PRIORIDADE)
+            // O usuário quer que o JSON seja a fonte da verdade, mas mantendo o LocalStorage atualizado
             try {
-                const savedModel = await tf.loadLayersModel('localstorage://minesweeper-model');
-                const metadata = JSON.parse(localStorage.getItem('minesweeper-metadata') || '{}');
+                console.log("📂 Tentando carregar brain-data.json...");
+                // Adicionando timestamp para evitar cache do navegador
+                const response = await fetch('brain-data.json?t=' + new Date().getTime());
                 
-                if(savedModel && metadata) {
-                    aiBrain.model = savedModel;
-                    aiBrain.epsilon = metadata.epsilon || 0.2;
-                    currentCycle = metadata.currentCycle || 0;
-                    totalWins = metadata.totalWins || 0;
-                    
-                    updateStats();
-                    document.getElementById('ia-status').innerText = `Cérebro Carregado! (${currentCycle} ciclos)`;
-                    console.log("✅ Modelo carregado do LocalStorage!");
-                    console.log(`📊 Ciclos: ${currentCycle} | Vitórias: ${totalWins}`);
-                    loaded = true;
-                }
-            } catch(e) {
-                console.log("ℹ️ LocalStorage vazio.");
-            }
-            
-            // 2. Se não houver no LocalStorage, tenta carregar brain-data.json do projeto
-            if (!loaded) {
-                try {
-                    const response = await fetch('brain-data.json');
+                if (response.ok) {
                     const brainData = await response.json();
                     
                     if (brainData.modelTopology && brainData.weights && brainData.weights.length > 0) {
@@ -165,10 +148,38 @@
                         document.getElementById('ia-status').innerText = `Cérebro do Projeto Carregado! (${currentCycle} ciclos)`;
                         console.log("✅ Modelo carregado de brain-data.json!");
                         console.log(`📊 Ciclos: ${currentCycle} | Vitórias: ${totalWins}`);
+                        
+                        // Sincroniza com o LocalStorage imediatamente
+                        await saveBrainToStorage();
+                        console.log("🔄 Sincronizado com LocalStorage");
+                        
+                        loaded = true;
+                    }
+                }
+            } catch(e) {
+                console.log("ℹ️ brain-data.json não encontrado ou inválido. Tentando LocalStorage...", e);
+            }
+            
+            // 2. Se falhar o JSON, tenta carregar do LocalStorage
+            if (!loaded) {
+                try {
+                    const savedModel = await tf.loadLayersModel('localstorage://minesweeper-model');
+                    const metadata = JSON.parse(localStorage.getItem('minesweeper-metadata') || '{}');
+                    
+                    if(savedModel && metadata) {
+                        aiBrain.model = savedModel;
+                        aiBrain.epsilon = metadata.epsilon || 0.2;
+                        currentCycle = metadata.currentCycle || 0;
+                        totalWins = metadata.totalWins || 0;
+                        
+                        updateStats();
+                        document.getElementById('ia-status').innerText = `Cérebro Carregado! (${currentCycle} ciclos)`;
+                        console.log("✅ Modelo carregado do LocalStorage!");
+                        console.log(`📊 Ciclos: ${currentCycle} | Vitórias: ${totalWins}`);
                         loaded = true;
                     }
                 } catch(e) {
-                    console.log("ℹ️ brain-data.json não encontrado ou vazio. Começando do zero.");
+                    console.log("ℹ️ LocalStorage vazio ou erro ao carregar.");
                 }
             }
             

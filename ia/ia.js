@@ -11,9 +11,9 @@ class MinesweeperAI {
     this.cols = cols;
     this.gamma = 0.95;
     this.learningRate = 0.0003;
-    this.epsilon = 1.0;
-    this.epsilonMin = 0.1;
-    this.epsilonDecay = 0.998;
+    this.epsilon = 0.5; // Começa com 50% exploração (antes: 100%)
+    this.epsilonMin = 0.05; // Mínimo de 5% exploração (antes: 10%)
+    this.epsilonDecay = 0.995; // Decay mais rápido (antes: 0.998)
     this.memory = [];
     this.maxMemory = 10000;
     this.batchSize = 32;
@@ -72,36 +72,54 @@ class MinesweeperAI {
 
   async chooseAction(state) {
     const numCells = this.rows * this.cols;
+    const flatBoard = board.flat();
+
+    // VALIDAÇÃO: Constrói lista de ações válidas
+    const validActions = [];
+    for (let i = 0; i < numCells; i++) {
+      if (!flatBoard[i].revealed) {
+        // Pode clicar em células não reveladas
+        validActions.push(i);
+        // Pode marcar/desmarcar bandeiras em células não reveladas
+        validActions.push(i + numCells);
+      }
+    }
+
+    // Fallback: Se não há ações válidas (jogo acabou), retorna ação aleatória
+    if (validActions.length === 0) {
+      return Math.floor(Math.random() * (numCells * 2));
+    }
+
+    // EXPLORAÇÃO: Escolhe ação aleatória válida
     if (Math.random() < this.epsilon) {
-      const flatBoard = board.flat();
-      const validActions = [];
+      return validActions[Math.floor(Math.random() * validActions.length)];
+    }
+
+    // EXPLORAÇÃO: Usa rede neural mas filtra ações inválidas
+    return tf.tidy(() => {
+      const prediction = this.model.predict(state);
+      const predData = prediction.dataSync();
+
+      // Mascara ações inválidas com -Infinity
       for (let i = 0; i < numCells; i++) {
-        if (!flatBoard[i].revealed) {
-          validActions.push(i);
-          if (!flatBoard[i].flagged) validActions.push(i + numCells);
+        if (flatBoard[i].revealed) {
+          predData[i] = -Infinity; // Não pode clicar em revelado
+          predData[i + numCells] = -Infinity; // Não pode marcar revelado
         }
       }
-      return validActions.length > 0
-        ? validActions[Math.floor(Math.random() * validActions.length)]
-        : Math.floor(Math.random() * (numCells * 2));
-    } else {
-      return tf.tidy(() => {
-        const prediction = this.model.predict(state);
-        const predData = prediction.dataSync();
-        const flatBoard = board.flat();
 
-        for (let i = 0; i < numCells; i++) {
-          if (flatBoard[i].revealed) {
-            predData[i] = -Infinity;
-            predData[i + numCells] = -Infinity;
-          }
-          if (flatBoard[i].flagged) {
-            predData[i + numCells] = -Infinity;
-          }
+      // Encontra a melhor ação válida
+      let bestAction = 0;
+      let bestValue = -Infinity;
+      for (let i = 0; i < predData.length; i++) {
+        if (predData[i] > bestValue && validActions.includes(i)) {
+          bestValue = predData[i];
+          bestAction = i;
         }
-        return predData.indexOf(Math.max(...predData));
-      });
-    }
+      }
+
+      return bestAction;
+    });
   }
 
   remember(state, action, reward, nextState, done) {
@@ -424,24 +442,55 @@ async function trainIA() {
           }
         }
 
-        // 3. Executa Ação
+        // 3. Executa Ação e Calcula Recompensa Inteligente
         let reward = 0;
+        const cellsRevealedBefore = board
+          .flat()
+          .filter((c) => c.revealed).length;
+        const currentFlags = board.flat().filter((c) => c.flagged).length;
+
         if (isFlag) {
           if (board[r][c].flagged) {
-            reward = -30; // Punição repetida
+            const wasCorrect = board[r][c].mine;
+            handleRightClick(r, c); // Permite desmarcar
+            // Se desmarcar mina correta: punição(-20). Se desmarcar erro: recompensa(+5)
+            reward = wasCorrect ? -20 : 5;
           } else {
             const isMine = board[r][c].mine;
             handleRightClick(r, c);
-            reward = isMine ? 50 : -50;
+
+            if (isMine) {
+              // REBALANCEADO: Marcar mina certa vale muito (+50)
+              reward = 50;
+            } else {
+              // ANTI-SPAM: Penalidade progressiva para evitar "chutar bandeiras"
+              // Quanto mais bandeiras já colocadas, maior a penalidade
+              const flagPenalty = 20 + currentFlags * 5;
+              reward = -flagPenalty;
+              // Exemplo: 1ª bandeira errada = -25, 5ª = -45, 10ª = -70
+            }
           }
         } else {
           const result = handleClick(r, c);
-          if (result === "mine") reward = -50;
-          else if (result === "safe") reward = 15;
-          else if (result === "win") {
-            reward = 1000;
+          const cellsRevealedAfter = board
+            .flat()
+            .filter((c) => c.revealed).length;
+          const cellsRevealed = cellsRevealedAfter - cellsRevealedBefore;
+
+          if (result === "mine") {
+            reward = -1000; // Morte é MUITO grave (antes: -500)
+          } else if (result === "safe") {
+            // REBALANCEADO: Recompensa proporcional ao progresso
+            // Revelar 1 célula = +5, revelar 10 células = +50
+            reward = 5 + cellsRevealed * 3;
+          } else if (result === "win") {
+            // REBALANCEADO: Bônus de vitória + bônus por eficiência
+            const efficiency = numCells / Math.max(moves, 1);
+            reward = 2000 + efficiency * 100;
             won = true;
-          } else reward = -10; // Inválido
+          } else {
+            reward = -10; // Movimento inválido (antes: -20)
+          }
         }
 
         // 4. Obtém Próximo Estado
@@ -475,7 +524,11 @@ async function trainIA() {
           `%c 🏆 VITÓRIA NO CICLO ${currentCycle}! (Eps: ${aiBrain.epsilon.toFixed(3)})`,
           "color: #2ecc71; font-weight: bold; font-size: 14px; background: #000; padding: 4px;",
         );
-        saveBrainToStorage(); // Salva a cada vitória para garantir!
+        if (silentMode) {
+          if (totalWins % 100 === 0) saveBrainToStorage();
+        } else {
+          saveBrainToStorage();
+        }
       }
 
       // Log Periódico no console para não floodar

@@ -107,12 +107,8 @@ function resetGame() {
 function handleRightClick(r, c) {
   if (isGameOver || board[r][c].revealed) return;
 
-  const currentFlags = board.flat().filter((cell) => cell.flagged).length;
-
-  // Se não estiver marcado e já atingiu o limite, não permite marcar mais
-  if (!board[r][c].flagged && currentFlags >= mines) {
-    return;
-  }
+  // REMOVIDO: Limite artificial de bandeiras que bloqueava a IA
+  // A IA agora pode marcar/desmarcar livremente para corrigir erros
 
   const el = document.getElementById(`cell-${r}-${c}`);
   board[r][c].flagged = !board[r][c].flagged;

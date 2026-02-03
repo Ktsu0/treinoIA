@@ -92,6 +92,13 @@ class GeneticManager {
     if (best.weights) {
       this.bestWeightsData = best.weights;
       console.log("🧬 Evolução: Novo melhor cérebro encontrado!");
+
+      // CRÍTICO: Atualiza o cérebro principal com os novos pesos
+      const newWeights = this.bestWeightsData.map((w) =>
+        tf.tensor(w.data, w.shape),
+      );
+      aiBrain.model.setWeights(newWeights);
+      newWeights.forEach((t) => t.dispose());
     }
 
     // Atualiza UI
