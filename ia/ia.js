@@ -106,7 +106,12 @@ class MinesweeperAI {
 
   remember(state, action, reward, nextState, done) {
     this.memory.push({ state, action, reward, nextState, done });
-    if (this.memory.length > this.maxMemory) this.memory.shift();
+    if (this.memory.length > this.maxMemory) {
+      const old = this.memory.shift();
+      // Limpar memória da GPU para não vazar (Importante!)
+      if (old.state) old.state.dispose();
+      if (old.nextState) old.nextState.dispose();
+    }
   }
 
   async replay() {
@@ -325,6 +330,7 @@ function updateStats() {
 
 // ========== LOOP DE TREINO INFINITO ==========
 
+// ia.js - Versão Otimizada para Performance Extrema
 async function trainIA() {
   const statusEl = document.getElementById("ia-status");
   const pauseBtn = document.getElementById("pause-btn");
@@ -337,6 +343,8 @@ async function trainIA() {
   trainingCanceled = false;
 
   const turboCheckbox = document.getElementById("turbo-mode");
+
+  // Captura o estado inicial do turbo
   silentMode = turboCheckbox ? turboCheckbox.checked : false;
 
   if (!rows || !cols) {
@@ -348,7 +356,7 @@ async function trainIA() {
 
   if (!aiBrain || aiBrain.rows !== rows || aiBrain.cols !== cols) {
     aiBrain = new MinesweeperAI(rows, cols);
-    // Garante que o modelo está compilado (já é feito no construtor, mas verificamos)
+    // Garante compilação
     if (!aiBrain.model.optimizer) {
       aiBrain.model.compile({
         optimizer: tf.train.adam(aiBrain.learningRate),
@@ -357,7 +365,6 @@ async function trainIA() {
     }
   }
 
-  const progressFill = document.querySelector(".progress-fill");
   const progressContainer = document.querySelector(".training-progress");
   const statsPanel = document.querySelector(".training-stats");
 
@@ -367,111 +374,146 @@ async function trainIA() {
   const numCells = rows * cols;
   let recentWins = 0;
 
-  // LOOP INFINITO
+  // LOOP INFINITO DE TREINO
   while (!trainingCanceled) {
-    // Verifica pausa
+    // 1. Verifica Pause
     while (trainingPaused && !trainingCanceled) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-
     if (trainingCanceled) break;
 
-    currentCycle++;
-    startGame(activeDiff);
-    let episodeReward = 0;
-    let moves = 0;
-    let episodeLoss = 0;
-    let lossCount = 0;
-    let won = false;
+    // Atualiza estado do turbo a cada ciclo principal
+    silentMode = turboCheckbox ? turboCheckbox.checked : false;
 
-    while (!isGameOver && moves < numCells * 1.5) {
-      const state = aiBrain.getState(board);
-      const action = await aiBrain.chooseAction(state);
-      const isFlag = action >= numCells;
-      const cellIdx = isFlag ? action - numCells : action;
-      const r = Math.floor(cellIdx / cols);
-      const c = cellIdx % cols;
+    const gamesInBatch = silentMode ? 2000 : 1;
 
-      if (!silentMode) {
-        const targetEl = document.getElementById(`cell-${r}-${c}`);
-        const currentTargets = document.getElementsByClassName("ia-target");
-        while (currentTargets.length > 0)
-          currentTargets[0].classList.remove("ia-target");
+    for (let g = 0; g < gamesInBatch; g++) {
+      if (trainingCanceled) break; // Sai rápido se cancelou
+      if (trainingPaused) break; // Sai agora se pausou (para entrar no loop de espera externo)
 
-        if (targetEl) {
-          targetEl.classList.add("ia-target");
-          await new Promise((res) => setTimeout(res, 15));
+      currentCycle++;
+      startGame(activeDiff); // Reseta tabuleiro
+
+      // Variáveis locais da partida
+      let episodeReward = 0;
+      let moves = 0;
+      let won = false;
+
+      // Loop da Partida (Game Loop)
+      while (!isGameOver && moves < numCells * 1.5) {
+        // 1. Obtém Estado (Cria tensor na memória)
+        const state = aiBrain.getState(board);
+
+        // 2. Escolhe Ação (Async)
+        const actionIdx = await aiBrain.chooseAction(state);
+
+        const isFlag = actionIdx >= numCells;
+        const cellIdx = isFlag ? actionIdx - numCells : actionIdx;
+        const r = Math.floor(cellIdx / cols);
+        const c = cellIdx % cols;
+
+        // Visualização (Só se NÃO for Turbo)
+        if (!silentMode) {
+          const targetEl = document.getElementById(`cell-${r}-${c}`);
+          const currentTargets = document.getElementsByClassName("ia-target");
+          while (currentTargets.length > 0)
+            currentTargets[0].classList.remove("ia-target");
+          if (targetEl) {
+            targetEl.classList.add("ia-target");
+            await new Promise((res) => setTimeout(res, 15)); // Delay visual para humano ver
+          }
         }
-      }
 
-      let reward = 0;
-      if (isFlag) {
-        if (board[r][c].flagged) {
-          reward = -30;
+        // 3. Executa Ação
+        let reward = 0;
+        if (isFlag) {
+          if (board[r][c].flagged) {
+            reward = -30; // Punição repetida
+          } else {
+            const isMine = board[r][c].mine;
+            handleRightClick(r, c);
+            reward = isMine ? 50 : -50;
+          }
         } else {
-          const isMine = board[r][c].mine;
-          handleRightClick(r, c);
-          reward = isMine ? 50 : -50;
+          const result = handleClick(r, c);
+          if (result === "mine") reward = -50;
+          else if (result === "safe") reward = 15;
+          else if (result === "win") {
+            reward = 1000;
+            won = true;
+          } else reward = -10; // Inválido
         }
-      } else {
-        const result = handleClick(r, c);
-        if (result === "mine") reward = -50;
-        else if (result === "safe") reward = 15;
-        else if (result === "win") {
-          reward = 1000;
-          won = true;
-        } else reward = -10;
+
+        // 4. Obtém Próximo Estado
+        const nextState = aiBrain.getState(board);
+
+        // 5. Memoriza
+        // O tensor 'state' e 'nextState' são entregues ao 'remember'.
+        // Eles SÓ serão descartados quando o buffer de memória encher (ver método remember).
+        aiBrain.remember(state, actionIdx, reward, nextState, isGameOver);
+
+        episodeReward += reward;
+        moves++;
+
+        // 6. Treina (Replay)
+        // No modo turbo: Treina a cada 10 passos para speed. No normal: a cada passo.
+        if (!silentMode || moves % 10 === 0) {
+          await aiBrain.replay();
+        }
+
+        // Se visual, libera frame
+        if (!silentMode) await tf.nextFrame();
       }
 
-      const nextState = aiBrain.getState(board);
-      aiBrain.remember(state, action, reward, nextState, isGameOver);
-      episodeReward += Number(reward) || 0;
-      moves++;
+      // Fim da partida
+      aiBrain.decayEpsilon();
 
-      const loss = await aiBrain.replay();
-      if (loss) {
-        episodeLoss += loss;
-        lossCount++;
+      if (won) {
+        totalWins++;
+        recentWins++;
+        console.log(
+          `%c 🏆 VITÓRIA NO CICLO ${currentCycle}! (Eps: ${aiBrain.epsilon.toFixed(3)})`,
+          "color: #2ecc71; font-weight: bold; font-size: 14px; background: #000; padding: 4px;",
+        );
+        saveBrainToStorage(); // Salva a cada vitória para garantir!
       }
 
-      if (moves % (silentMode ? 50 : 5) === 0) await tf.nextFrame();
-    }
+      // Log Periódico no console para não floodar
+      if (currentCycle % 100 === 0) {
+        console.log(
+          `Ciclo ${currentCycle} | Wins: ${totalWins} | Epsilon: ${aiBrain.epsilon.toFixed(3)}`,
+        );
+      }
+    } // Fim do For (Batch)
 
-    aiBrain.decayEpsilon();
+    // === RESUMO DO LOTE (Aparece a cada atualização de tela - 500 jogos) ===
+    console.log(
+      `[LOTE] Ciclo ${currentCycle} | Total Wins: ${totalWins} | Recentes: ${recentWins} | Epsilon: ${aiBrain.epsilon.toFixed(4)}`,
+    );
+    recentWins = 0; // Reseta contador de wins recentes
 
-    if (won) {
-      totalWins++;
-      recentWins++;
-    }
+    // Atualiza UI apenas uma vez por Batch
+    updateStats();
+    if (statusEl)
+      statusEl.innerText = `Ciclo ${currentCycle} | Vitórias: ${totalWins} (Turbo: ${silentMode ? "ON" : "OFF"})`;
 
-    if (currentCycle % 50 === 0) {
-      console.log(`✅ Vitórias nos últimos 50 episódios: ${recentWins}/50`);
-      recentWins = 0;
+    // Libera a thread para a UI não travar totalmente
+    await tf.nextFrame();
+
+    // Salva periodicamente (A cada ~2500 partidas)
+    if (currentCycle % 2500 < gamesInBatch) {
+      console.log(`✅ Backup Automático (Ciclo ${currentCycle})`);
       await saveBrainToStorage();
     }
-
-    if (!silentMode || currentCycle % 10 === 0) {
-      console.log(
-        `[CICLO ${currentCycle}] Rec: ${episodeReward.toFixed(0)} | Loss: ${(episodeLoss / (lossCount || 1)).toFixed(4)} | Eps: ${aiBrain.epsilon.toFixed(3)} | Vitórias: ${totalWins}`,
-      );
-    }
-
-    updateStats();
-
-    if (statusEl && (!silentMode || currentCycle % 10 === 0))
-      statusEl.innerText = `Ciclo ${currentCycle} | Rec: ${episodeReward.toFixed(0)} | Vitórias: ${totalWins}`;
   }
 
   // Finalização
   await saveBrainToStorage();
-  if (statusEl)
-    statusEl.innerText = `IA Pausada - ${totalWins} vitórias em ${currentCycle} jogos`;
+  if (statusEl) statusEl.innerText = `IA Pausada - ${totalWins} vitórias`;
   if (pauseBtn) pauseBtn.style.display = "none";
   trainingMode = false;
   silentMode = false;
-  alert(
-    `Treino finalizado!\n\nCiclos: ${currentCycle}\nVitórias: ${totalWins}/${currentCycle} (${((totalWins / currentCycle) * 100).toFixed(1)}%)`,
-  );
+  alert(`Treino finalizado!\nCiclos: ${currentCycle}\nVitórias: ${totalWins}`);
 }
 
 function resetBrain() {
