@@ -1,5 +1,5 @@
-const POPULATION_SIZE = 600; // ALTA CARGA: 12 threads x 100 jogos cada = CPU FRITANDO
-const THREADS = navigator.hardwareConcurrency || 6; // Usa todos os núcleos disponíveis (ou 6 por padrão)
+const POPULATION_SIZE = 100; // Reduzido para ser mais fluído, aumente conforme a CPU aguentar
+const THREADS = Math.min(navigator.hardwareConcurrency || 4, 8); // Limitado a 8 para não afogar o barramento de dados
 
 class GeneticManager {
   constructor() {
@@ -27,10 +27,23 @@ class GeneticManager {
     this.bestWeightsData = weights; // Pai inicial
 
     // Cria Pool de Workers
+    const readyPromises = [];
     for (let i = 0; i < THREADS; i++) {
       const w = new Worker("worker.js");
-      // Handler temporário até começar o loop
       this.workers.push({ worker: w, id: i });
+
+      const readyP = new Promise((resolve) => {
+        const handler = (ev) => {
+          if (ev.data.type === "READY") {
+            w.removeEventListener("message", handler);
+            resolve();
+          } else if (ev.data.type === "ERROR") {
+            console.error(`❌ Worker ${i} falhou:`, ev.data.error);
+          }
+        };
+        w.addEventListener("message", handler);
+      });
+      readyPromises.push(readyP);
 
       w.postMessage({
         type: "INIT_MODEL",
@@ -38,8 +51,8 @@ class GeneticManager {
       });
     }
 
-    // Espera um pouco para garantir init
-    await new Promise((r) => setTimeout(r, 1000));
+    await Promise.all(readyPromises);
+    console.log("✅ Todos os Workers prontos e carregados!");
   }
 
   async evolve() {
@@ -54,23 +67,33 @@ class GeneticManager {
 
     // Dispara tarefas
     for (let i = 0; i < THREADS; i++) {
-      const p = new Promise((resolve) => {
+      const p = new Promise((resolve, reject) => {
         const w = this.workers[i].worker;
 
-        // Handler único para essa rodada
+        // Ouvinte de progresso (vazio para performance)
+        const progressHandler = (ev) => {};
+
         const handler = (ev) => {
           if (ev.data.type === "BATCH_DONE") {
             w.removeEventListener("message", handler);
+            w.removeEventListener("message", progressHandler);
             resolve(ev.data.results);
+          } else if (ev.data.type === "ERROR") {
+            console.error(`💥 Erro no Worker ${i}:`, ev.data.error);
+            w.removeEventListener("message", handler);
+            w.removeEventListener("message", progressHandler);
+            reject(ev.data.error);
           }
         };
+
         w.addEventListener("message", handler);
+        w.addEventListener("message", progressHandler);
 
         w.postMessage({
           type: "RUN_BATCH",
           payload: {
             gamesToPlay: gamesPerWorker,
-            weights: this.bestWeightsData, // Manda o melhor atual para ser mutado lá dentro
+            weights: this.bestWeightsData,
             rows: aiBrain.rows,
             cols: aiBrain.cols,
             mines: mines,

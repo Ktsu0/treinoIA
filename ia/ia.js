@@ -11,9 +11,9 @@ class MinesweeperAI {
     this.cols = cols;
     this.gamma = 0.95;
     this.learningRate = 0.0003;
-    this.epsilon = 0.5; // Começa com 50% exploração (antes: 100%)
-    this.epsilonMin = 0.05; // Mínimo de 5% exploração (antes: 10%)
-    this.epsilonDecay = 0.995; // Decay mais rápido (antes: 0.998)
+    this.epsilon = 1.0; // Começa com 100% exploração (para aprender do zero)
+    this.epsilonMin = 0.05; // Mínimo de 5% exploração
+    this.epsilonDecay = 0.998; // Decay mais lento para explorar mais no início (antes: 0.995)
     this.memory = [];
     this.maxMemory = 10000;
     this.batchSize = 32;
@@ -57,16 +57,23 @@ class MinesweeperAI {
 
   getState(board) {
     return tf.tidy(() => {
-      const state = board.map((row) =>
-        row.map((cell) => {
-          let value = 0;
-          if (cell.revealed) value = (cell.count + 1) / 9;
-          const hidden = cell.revealed ? 0 : 1;
-          const flagged = cell.flagged ? 1 : 0;
-          return [value, hidden, flagged];
-        }),
-      );
-      return tf.tensor3d(state).expandDims(0);
+      const numCells = this.rows * this.cols;
+      const buffer = new Float32Array(numCells * 3);
+      const flat = board.flat();
+
+      for (let i = 0; i < numCells; i++) {
+        const cell = flat[i];
+        let value = 0;
+        if (cell.revealed) value = (cell.count + 1) / 9;
+        const hidden = cell.revealed ? 0 : 1;
+        const flagged = cell.flagged ? 1 : 0;
+
+        const base = i * 3;
+        buffer[base] = value;
+        buffer[base + 1] = hidden;
+        buffer[base + 2] = flagged;
+      }
+      return tf.tensor3d(buffer, [this.rows, this.cols, 3]).expandDims(0);
     });
   }
 
@@ -74,24 +81,17 @@ class MinesweeperAI {
     const numCells = this.rows * this.cols;
     const flatBoard = board.flat();
 
-    // VALIDAÇÃO: Constrói lista de ações válidas
-    const validActions = [];
-    for (let i = 0; i < numCells; i++) {
-      if (!flatBoard[i].revealed) {
-        // Pode clicar em células não reveladas
-        validActions.push(i);
-        // Pode marcar/desmarcar bandeiras em células não reveladas
-        validActions.push(i + numCells);
-      }
-    }
-
-    // Fallback: Se não há ações válidas (jogo acabou), retorna ação aleatória
-    if (validActions.length === 0) {
-      return Math.floor(Math.random() * (numCells * 2));
-    }
-
     // EXPLORAÇÃO: Escolhe ação aleatória válida
     if (Math.random() < this.epsilon) {
+      const validActions = [];
+      for (let i = 0; i < numCells; i++) {
+        if (!flatBoard[i].revealed) {
+          validActions.push(i);
+          validActions.push(i + numCells);
+        }
+      }
+      if (validActions.length === 0)
+        return Math.floor(Math.random() * (numCells * 2));
       return validActions[Math.floor(Math.random() * validActions.length)];
     }
 
@@ -100,21 +100,23 @@ class MinesweeperAI {
       const prediction = this.model.predict(state);
       const predData = prediction.dataSync();
 
-      // Mascara ações inválidas com -Infinity
-      for (let i = 0; i < numCells; i++) {
-        if (flatBoard[i].revealed) {
-          predData[i] = -Infinity; // Não pode clicar em revelado
-          predData[i + numCells] = -Infinity; // Não pode marcar revelado
-        }
-      }
-
-      // Encontra a melhor ação válida
       let bestAction = 0;
       let bestValue = -Infinity;
-      for (let i = 0; i < predData.length; i++) {
-        if (predData[i] > bestValue && validActions.includes(i)) {
-          bestValue = predData[i];
-          bestAction = i;
+
+      // Encontra melhor ação válida em O(N)
+      for (let i = 0; i < numCells; i++) {
+        if (!flatBoard[i].revealed) {
+          // Clique
+          if (predData[i] > bestValue) {
+            bestValue = predData[i];
+            bestAction = i;
+          }
+          // Bandeira
+          const flagIdx = i + numCells;
+          if (predData[flagIdx] > bestValue) {
+            bestValue = predData[flagIdx];
+            bestAction = flagIdx;
+          }
         }
       }
 
@@ -160,7 +162,7 @@ class MinesweeperAI {
       if (!batch[i].done) {
         target += this.gamma * Math.max(...nextQArray[i]);
       }
-      qArray[i][batch[i].action] = Math.max(-50, Math.min(50, target));
+      qArray[i][batch[i].action] = Math.max(-1000, Math.min(2500, target));
     }
 
     const h = await this.model.fit(states, tf.tensor2d(qArray), {

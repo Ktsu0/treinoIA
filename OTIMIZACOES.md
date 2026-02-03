@@ -30,16 +30,15 @@
 
 ### **Antes vs. Depois:**
 
-| Parâmetro           | Valor Antigo         | Valor Novo              | Impacto                 |
-| ------------------- | -------------------- | ----------------------- | ----------------------- |
-| **Epsilon inicial** | 1.0 (100% aleatório) | **0.5 (50% aleatório)** | Aprende desde o início  |
-| **Epsilon mínimo**  | 0.1 (10% aleatório)  | **0.05 (5% aleatório)** | Mais determinístico     |
-| **Decay**           | 0.998 (lento)        | **0.995 (rápido)**      | Converge 3x mais rápido |
+| Parâmetro           | Valor Antigo         | Valor Novo              | Impacto                  |
+| ------------------- | -------------------- | ----------------------- | ------------------------ |
+| **Epsilon inicial** | 1.0 (100% aleatório) | **1.0 (Resetado)**      | Exploração total inicial |
+| **Epsilon mínimo**  | 0.1 (10% aleatório)  | **0.05 (5% aleatório)** | Mais determinístico      |
+| **Decay**           | 0.995 (rápido)       | **0.998 (Lento)**       | Mais tempo para aprender |
 
 ### **Tempo para Convergência:**
 
-- **Antes**: ~3500 episódios para chegar a 10% de aleatoriedade
-- **Depois**: ~1000 episódios para chegar a 5% de aleatoriedade
+- **Nova Meta**: ~1500 episódios para chegar a 5% de aleatoriedade (mais focado em qualidade inicial).
 
 ### **Benefícios:**
 
