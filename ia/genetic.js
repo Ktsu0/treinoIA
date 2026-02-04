@@ -1,4 +1,4 @@
-const POPULATION_SIZE = 300; // Reduzido para ser mais fluído, aumente conforme a CPU aguentar
+const POPULATION_SIZE = 200; // Reduzido para ser mais fluído, aumente conforme a CPU aguentar
 const THREADS = Math.min(navigator.hardwareConcurrency || 4, 8); // Limitado a 8 para não afogar o barramento de dados
 
 class GeneticManager {
@@ -7,6 +7,19 @@ class GeneticManager {
     this.generation = 0;
     this.isTraining = false;
     this.bestWeightsData = null; // Stored as simple arrays for easy transfer
+  }
+
+  applyMutation(weights, rate = 0.3, amount = 0.15) {
+    return weights.map((w) => {
+      const newData = new Float32Array(w.data); // Copia os dados
+      for (let i = 0; i < newData.length; i++) {
+        if (Math.random() < rate) {
+          // Adiciona um ruído aleatório
+          newData[i] += (Math.random() * 2 - 1) * amount;
+        }
+      }
+      return { data: newData, shape: w.shape };
+    });
   }
 
   async init() {
@@ -62,11 +75,12 @@ class GeneticManager {
     const promises = [];
 
     console.log(
-      `🏁 Gen ${this.generation} | Disparando ${THREADS} threads (${gamesPerWorker} jogos/thread)...`,
+      `🏁 Gen ${this.generation} | Disparando ${THREADS} threads (${gamesPerWorker} jogos/thread)...`
     );
 
     // Dispara tarefas
     for (let i = 0; i < THREADS; i++) {
+      const mutatedWeights = this.applyMutation(this.bestWeightsData);
       const p = new Promise((resolve, reject) => {
         const w = this.workers[i].worker;
 
@@ -115,10 +129,13 @@ class GeneticManager {
     if (best.weights) {
       this.bestWeightsData = best.weights;
       console.log("🧬 Evolução: Novo melhor cérebro encontrado!");
-
+      console.log(
+        "DEBUG: Média do primeiro peso mutado:",
+        best.weights[0].data[0]
+      );
       // CRÍTICO: Atualiza o cérebro principal com os novos pesos
       const newWeights = this.bestWeightsData.map((w) =>
-        tf.tensor(w.data, w.shape),
+        tf.tensor(w.data, w.shape)
       );
       aiBrain.model.setWeights(newWeights);
       newWeights.forEach((t) => t.dispose());
@@ -127,7 +144,9 @@ class GeneticManager {
     // Atualiza UI
     const statusEl = document.getElementById("ia-status");
     if (statusEl)
-      statusEl.innerText = `Gen ${this.generation}: Score ${best.score.toFixed(0)} ${best.victory ? "🏆" : ""}`;
+      statusEl.innerText = `Gen ${this.generation}: Score ${best.score.toFixed(
+        0
+      )} ${best.victory ? "🏆" : ""}`;
 
     const cycleEl = document.getElementById("cycle-count");
     if (cycleEl) cycleEl.innerText = `Gen ${this.generation}`;
@@ -135,8 +154,10 @@ class GeneticManager {
     // Feedback Visual no Console
     if (best.victory) {
       console.log(
-        `%c 🏆 Gen ${this.generation}: SCORE ${best.score.toFixed(1)} (VITÓRIA!) `,
-        "background: #2ecc71; color: black; font-weight: bold; padding: 4px; font-size: 14px",
+        `%c 🏆 Gen ${this.generation}: SCORE ${best.score.toFixed(
+          1
+        )} (VITÓRIA!) `,
+        "background: #2ecc71; color: black; font-weight: bold; padding: 4px; font-size: 14px"
       );
 
       totalWins++;
@@ -144,8 +165,10 @@ class GeneticManager {
       saveBrainToStorage();
     } else {
       console.log(
-        `%c ❌ Gen ${this.generation}: Melhor Score ${best.score.toFixed(1)} (Derrota) `,
-        "color: #e74c3c; font-weight: bold;",
+        `%c ❌ Gen ${this.generation}: Melhor Score ${best.score.toFixed(
+          1
+        )} (Derrota) `,
+        "color: #e74c3c; font-weight: bold;"
       );
     }
 

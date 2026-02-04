@@ -54,7 +54,7 @@ function resetGame() {
       revealed: false,
       flagged: false,
       count: 0,
-    })),
+    }))
   );
 
   // Plantar minas
@@ -207,7 +207,7 @@ function revealAllMines() {
           el.innerText = "💣";
         }
       }
-    }),
+    })
   );
 }
 
@@ -252,7 +252,7 @@ function saveRecord(time) {
   const top10 = records.slice(0, 10);
   localStorage.setItem(
     `minesweeper_ranking_${activeDiff}`,
-    JSON.stringify(top10),
+    JSON.stringify(top10)
   );
   renderRanking();
 }
@@ -278,7 +278,7 @@ function renderRanking() {
             <td>${rec.time}s</td>
             <td>${rec.date}</td>
         </tr>
-    `,
+    `
     )
     .join("");
 }

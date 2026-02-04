@@ -29,7 +29,7 @@ class MinesweeperAI {
         filters: 32,
         activation: "relu",
         padding: "same",
-      }),
+      })
     );
     model.add(
       tf.layers.conv2d({
@@ -37,7 +37,7 @@ class MinesweeperAI {
         filters: 64,
         activation: "relu",
         padding: "same",
-      }),
+      })
     );
     model.add(tf.layers.flatten());
     model.add(tf.layers.dense({ units: 128, activation: "relu" }));
@@ -46,7 +46,7 @@ class MinesweeperAI {
       tf.layers.dense({
         units: this.rows * this.cols * 2,
         activation: "linear",
-      }),
+      })
     );
     model.compile({
       optimizer: tf.train.adam(this.learningRate),
@@ -240,7 +240,7 @@ async function exportBrain() {
     console.log("\n" + jsonString);
 
     alert(
-      `✅ Cérebro exportado!\n\n📥 Arquivo baixado\n\n📋 Copie o JSON do console e cole em 'ia/brain-data.json'`,
+      `✅ Cérebro exportado!\n\n📥 Arquivo baixado\n\n📋 Copie o JSON do console e cole em 'ia/brain-data.json'`
     );
   } catch (err) {
     console.error("Erro ao exportar:", err);
@@ -256,7 +256,7 @@ async function importBrain(file) {
     // Recria o cérebro com as dimensões corretas
     aiBrain = new MinesweeperAI(
       brainData.metadata.rows,
-      brainData.metadata.cols,
+      brainData.metadata.cols
     );
 
     // Restaura metadados
@@ -285,12 +285,13 @@ async function importBrain(file) {
 
     // Atualiza UI
     updateStats();
-    document.getElementById("ia-status").innerText =
-      `Cérebro Carregado! (${currentCycle} ciclos)`;
+    document.getElementById(
+      "ia-status"
+    ).innerText = `Cérebro Carregado! (${currentCycle} ciclos)`;
 
     console.log("✅ Cérebro importado com sucesso!");
     alert(
-      `Cérebro carregado!\nCiclos: ${currentCycle}\nVitórias: ${totalWins}`,
+      `Cérebro carregado!\nCiclos: ${currentCycle}\nVitórias: ${totalWins}`
     );
   } catch (err) {
     console.error("Erro ao importar:", err);
@@ -328,7 +329,7 @@ async function saveBrainToStorage() {
         currentCycle: currentCycle,
         totalWins: totalWins,
         timestamp: new Date().toISOString(),
-      }),
+      })
     );
     console.log("💾 Progresso salvo!");
   } catch (err) {
@@ -452,25 +453,22 @@ async function trainIA() {
         const currentFlags = board.flat().filter((c) => c.flagged).length;
 
         if (isFlag) {
+          // Calculamos o multiplicador de progressão baseado no número de bandeiras
+          // Isso garante que o peso da decisão aumente conforme o jogo avança
+          const flagMultiplier = 5 * currentFlags;
+
           if (board[r][c].flagged) {
             const wasCorrect = board[r][c].mine;
-            handleRightClick(r, c); // Permite desmarcar
-            // CORREÇÃO: Punição pesada (-60) se desmarcar mina certa.
-            // Recompensa (+15) se desmarcar erro.
-            reward = wasCorrect ? -60 : 15;
-          } else {
-            const isMine = board[r][c].mine;
-            handleRightClick(r, c);
+            handleRightClick(r, c); // Desmarcar
 
-            if (isMine) {
-              // REBALANCEADO: Marcar mina certa vale muito (+50)
-              reward = 50;
+            if (wasCorrect) {
+              // PUNIÇÃO PROGRESSIVA: Retirar uma bandeira que estava CERTA
+              // Quanto mais bandeiras no jogo, mais grave é o erro de tirar uma correta
+              reward = -(60 + flagMultiplier);
             } else {
-              // ANTI-SPAM: Penalidade progressiva para evitar "chutar bandeiras"
-              // Quanto mais bandeiras já colocadas, maior a penalidade
-              const flagPenalty = 20 + currentFlags * 5;
-              reward = -flagPenalty;
-              // Exemplo: 1ª bandeira errada = -25, 5ª = -45, 10ª = -70
+              // RECOMPENSA PROGRESSIVA: Tirar uma bandeira que estava ERRADA
+              // Premiamos a IA por "perceber" o erro e corrigi-lo
+              reward = 15 + Math.floor(flagMultiplier / 2);
             }
           }
         } else {
@@ -481,11 +479,10 @@ async function trainIA() {
           const cellsRevealed = cellsRevealedAfter - cellsRevealedBefore;
 
           if (result === "mine") {
-            reward = -1000; // Morte é MUITO grave (antes: -500)
+            reward = -100; // Morte é MUITO grave (antes: -500)
           } else if (result === "safe") {
             // REBALANCEADO: Recompensa proporcional ao progresso
-            // Revelar 1 célula = +5, revelar 10 células = +50
-            reward = 5 + cellsRevealed * 3;
+            reward = 10 + cellsRevealed * 3;
           } else if (result === "win") {
             // REBALANCEADO: Bônus de vitória + bônus por eficiência
             const efficiency = numCells / Math.max(moves, 1);
@@ -524,8 +521,10 @@ async function trainIA() {
         totalWins++;
         recentWins++;
         console.log(
-          `%c 🏆 VITÓRIA NO CICLO ${currentCycle}! (Eps: ${aiBrain.epsilon.toFixed(3)})`,
-          "color: #2ecc71; font-weight: bold; font-size: 14px; background: #000; padding: 4px;",
+          `%c 🏆 VITÓRIA NO CICLO ${currentCycle}! (Eps: ${aiBrain.epsilon.toFixed(
+            3
+          )})`,
+          "color: #2ecc71; font-weight: bold; font-size: 14px; background: #000; padding: 4px;"
         );
         if (silentMode) {
           if (totalWins % 100 === 0) saveBrainToStorage();
@@ -537,21 +536,27 @@ async function trainIA() {
       // Log Periódico no console para não floodar
       if (currentCycle % 100 === 0) {
         console.log(
-          `Ciclo ${currentCycle} | Wins: ${totalWins} | Epsilon: ${aiBrain.epsilon.toFixed(3)}`,
+          `Ciclo ${currentCycle} | Wins: ${totalWins} | Epsilon: ${aiBrain.epsilon.toFixed(
+            3
+          )}`
         );
       }
     } // Fim do For (Batch)
 
     // === RESUMO DO LOTE (Aparece a cada atualização de tela - 500 jogos) ===
     console.log(
-      `[LOTE] Ciclo ${currentCycle} | Total Wins: ${totalWins} | Recentes: ${recentWins} | Epsilon: ${aiBrain.epsilon.toFixed(4)}`,
+      `[LOTE] Ciclo ${currentCycle} | Total Wins: ${totalWins} | Recentes: ${recentWins} | Epsilon: ${aiBrain.epsilon.toFixed(
+        4
+      )}`
     );
     recentWins = 0; // Reseta contador de wins recentes
 
     // Atualiza UI apenas uma vez por Batch
     updateStats();
     if (statusEl)
-      statusEl.innerText = `Ciclo ${currentCycle} | Vitórias: ${totalWins} (Turbo: ${silentMode ? "ON" : "OFF"})`;
+      statusEl.innerText = `Ciclo ${currentCycle} | Vitórias: ${totalWins} (Turbo: ${
+        silentMode ? "ON" : "OFF"
+      })`;
 
     // Libera a thread para a UI não travar totalmente
     await tf.nextFrame();

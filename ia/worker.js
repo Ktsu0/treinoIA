@@ -96,7 +96,7 @@ class WorkerMinesweeper {
     }
 
     if (cell.flagged) return { reward: -10, done: false };
-    if (cell.mine) return { reward: -1000, done: true };
+    if (cell.mine) return { reward: -100, done: true };
 
     const before = this.revealedCount;
     this.reveal(idx);
@@ -152,7 +152,7 @@ self.onmessage = async function (e) {
       model = await tf.loadLayersModel(
         tf.io.fromMemory({
           modelTopology: modelTopology,
-        }),
+        })
       );
 
       model.compile({ optimizer: "adam", loss: "meanSquaredError" });
@@ -176,7 +176,7 @@ self.onmessage = async function (e) {
             const numToMutate = Math.floor(len * mutationRate);
             for (let m = 0; m < numToMutate; m++) {
               const idx = Math.floor(Math.random() * len);
-              newW[idx] += (Math.random() - 0.5) * 0.2;
+              newW[idx] += (Math.random() - 0.5) * 0.1;
             }
           }
           return tf.tensor(newW, w.shape);
@@ -228,19 +228,14 @@ self.onmessage = async function (e) {
         }
 
         let finalWeights = null;
-        if (victory || score > 500) {
-          finalWeights = mutatedTensors.map((t) => ({
-            data: t.dataSync(),
-            shape: t.shape,
-          }));
-        }
+
+        finalWeights = mutatedTensors.map((t) => ({
+          data: t.dataSync(),
+          shape: t.shape,
+        }));
 
         results.push({ score, victory, weights: finalWeights });
-        for (let t of mutatedTensors) t.dispose();
       }
-
-      // OTIMIZAÇÃO CRÍTICA: Retorna apenas o MELHOR resultado do lote com pesos
-      // Isso evita trafegar gigabytes de dados desnecessários
       results.sort((a, b) => b.score - a.score);
 
       const responseResults = results.map((r, idx) => ({
