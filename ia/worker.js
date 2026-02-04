@@ -84,7 +84,9 @@ class WorkerMinesweeper {
       if (cell.flagged) {
         cell.flagged = false;
         this.flaggedCount--;
-        return { reward: cell.mine ? -20 : 5, done: false };
+        // CORREÇÃO: Punição pesada por desmarcar mina correta (-60)
+        // Recompensa por corrigir erro ao desmarcar não-mina (+15)
+        return { reward: cell.mine ? -60 : 15, done: false };
       }
       cell.flagged = true;
       this.flaggedCount++;

@@ -1,4 +1,4 @@
-const POPULATION_SIZE = 100; // Reduzido para ser mais fluído, aumente conforme a CPU aguentar
+const POPULATION_SIZE = 300; // Reduzido para ser mais fluído, aumente conforme a CPU aguentar
 const THREADS = Math.min(navigator.hardwareConcurrency || 4, 8); // Limitado a 8 para não afogar o barramento de dados
 
 class GeneticManager {

@@ -455,8 +455,9 @@ async function trainIA() {
           if (board[r][c].flagged) {
             const wasCorrect = board[r][c].mine;
             handleRightClick(r, c); // Permite desmarcar
-            // Se desmarcar mina correta: punição(-20). Se desmarcar erro: recompensa(+5)
-            reward = wasCorrect ? -20 : 5;
+            // CORREÇÃO: Punição pesada (-60) se desmarcar mina certa.
+            // Recompensa (+15) se desmarcar erro.
+            reward = wasCorrect ? -60 : 15;
           } else {
             const isMine = board[r][c].mine;
             handleRightClick(r, c);
