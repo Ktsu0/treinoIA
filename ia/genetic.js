@@ -1,21 +1,41 @@
-const POPULATION_SIZE = 200; // Reduzido para ser mais fluído, aumente conforme a CPU aguentar
-const THREADS = Math.min(navigator.hardwareConcurrency || 4, 8); // Limitado a 8 para não afogar o barramento de dados
+const POPULATION_SIZE = 200; // População por geração
+const THREADS = Math.min(navigator.hardwareConcurrency || 4, 12); // Workers paralelos
+const ELITE_SIZE = 10; // Top 5 melhores IAs mantidas entre gerações
 
 class GeneticManager {
   constructor() {
     this.workers = [];
     this.generation = 0;
     this.isTraining = false;
-    this.bestWeightsData = null; // Stored as simple arrays for easy transfer
+    this.elitePopulation = []; // Top 5 melhores IAs de todas as gerações
+    this.bestScore = -Infinity;
+    this.generationHistory = []; // Histórico de performance
   }
 
-  applyMutation(weights, rate = 0.3, amount = 0.15) {
+  // Crossover: Combina dois pais para criar um filho
+  crossover(parent1, parent2) {
+    return parent1.map((w, layerIdx) => {
+      const p1Data = parent1[layerIdx].data;
+      const p2Data = parent2[layerIdx].data;
+      const childData = new Float32Array(p1Data.length);
+
+      // Crossover uniforme: cada peso vem de um dos pais
+      for (let i = 0; i < p1Data.length; i++) {
+        childData[i] = Math.random() < 0.5 ? p1Data[i] : p2Data[i];
+      }
+
+      return { data: childData, shape: w.shape };
+    });
+  }
+
+  // Mutação com taxa adaptativa
+  applyMutation(weights, rate = 0.15, amount = 0.2) {
     return weights.map((w) => {
-      const newData = new Float32Array(w.data); // Copia os dados
+      const newData = new Float32Array(w.data);
       for (let i = 0; i < newData.length; i++) {
         if (Math.random() < rate) {
-          // Adiciona um ruído aleatório
-          newData[i] += (Math.random() * 2 - 1) * amount;
+          // Mutação gaussiana para mudanças mais suaves
+          newData[i] += (Math.random() - 0.5) * 2 * amount;
         }
       }
       return { data: newData, shape: w.shape };
@@ -28,7 +48,9 @@ class GeneticManager {
       return;
     }
 
-    console.log(`🚀 Iniciando ${THREADS} Workers...`);
+    console.log(
+      `🚀 Iniciando ${THREADS} Workers com Elite de ${ELITE_SIZE}...`,
+    );
 
     // Prepara topologia e pesos iniciais
     const topology = aiBrain.model.toJSON(null, false);
@@ -37,7 +59,10 @@ class GeneticManager {
     for (let t of wTensors)
       weights.push({ data: await t.data(), shape: t.shape });
 
-    this.bestWeightsData = weights; // Pai inicial
+    // Apenas prepara os pesos, mas não insere na elite ainda
+    // A elite será formada pelos resultados da primeira geração
+    this.initialWeights = weights;
+    this.elitePopulation = []; // Começa vazia para ser preenchida pelos melhores da Gen 1
 
     // Cria Pool de Workers
     const readyPromises = [];
@@ -60,12 +85,12 @@ class GeneticManager {
 
       w.postMessage({
         type: "INIT_MODEL",
-        payload: { topology, weights: this.bestWeightsData },
+        payload: { topology, weights },
       });
     }
 
     await Promise.all(readyPromises);
-    console.log("✅ Todos os Workers prontos e carregados!");
+    console.log("✅ Todos os Workers prontos!");
   }
 
   async evolve() {
@@ -75,39 +100,43 @@ class GeneticManager {
     const promises = [];
 
     console.log(
-      `🏁 Gen ${this.generation} | Disparando ${THREADS} threads (${gamesPerWorker} jogos/thread)...`
+      `🏁 Gen ${this.generation} | ${THREADS} threads × ${gamesPerWorker} jogos = ${POPULATION_SIZE} indivíduos`,
     );
 
-    // Dispara tarefas
+    // Distribui trabalho entre workers
+    // Cada worker recebe uma mistura de: elite, crossovers e mutações
     for (let i = 0; i < THREADS; i++) {
-      const mutatedWeights = this.applyMutation(this.bestWeightsData);
       const p = new Promise((resolve, reject) => {
         const w = this.workers[i].worker;
-
-        // Ouvinte de progresso (vazio para performance)
-        const progressHandler = (ev) => {};
 
         const handler = (ev) => {
           if (ev.data.type === "BATCH_DONE") {
             w.removeEventListener("message", handler);
-            w.removeEventListener("message", progressHandler);
             resolve(ev.data.results);
           } else if (ev.data.type === "ERROR") {
             console.error(`💥 Erro no Worker ${i}:`, ev.data.error);
             w.removeEventListener("message", handler);
-            w.removeEventListener("message", progressHandler);
             reject(ev.data.error);
           }
         };
 
         w.addEventListener("message", handler);
-        w.addEventListener("message", progressHandler);
+
+        // Envia população diversificada para o worker
+        const eliteWeights =
+          this.elitePopulation.length > 0
+            ? this.elitePopulation[0].weights
+            : this.elitePopulation[0]?.weights || null;
 
         w.postMessage({
           type: "RUN_BATCH",
           payload: {
             gamesToPlay: gamesPerWorker,
-            weights: this.bestWeightsData,
+            elitePopulation:
+              this.elitePopulation.length > 0
+                ? this.elitePopulation.map((e) => e.weights)
+                : [this.initialWeights], // Envia mestre como semente
+            eliteSize: ELITE_SIZE, // ✅ Envia o tamanho da elite
             rows: aiBrain.rows,
             cols: aiBrain.cols,
             mines: mines,
@@ -117,59 +146,92 @@ class GeneticManager {
       promises.push(p);
     }
 
-    // Espera todos voltarem (Parallel Join)
+    // Aguarda todos os workers
     const resultsArrays = await Promise.all(promises);
     const allResults = resultsArrays.flat();
 
-    // Seleção
+    // Ordena por score
     allResults.sort((a, b) => b.score - a.score);
-    const best = allResults[0];
 
-    // Se o melhor dessa rodada retornou pesos (significa que foi bom), atualizamos
+    // Atualiza elite (Top 5 de TODAS as gerações)
+    const newCandidates = allResults.slice(0, ELITE_SIZE).map((r) => ({
+      weights: r.weights,
+      score: r.score,
+      victory: r.victory,
+      generation: this.generation,
+    }));
+
+    // Combina elite antiga com novos candidatos e pega os top 5
+    const combinedElite = [...this.elitePopulation, ...newCandidates]
+      .filter((e) => e.weights !== null) // Remove entradas sem pesos
+      .sort((a, b) => b.score - a.score)
+      .slice(0, ELITE_SIZE);
+
+    this.elitePopulation = combinedElite;
+
+    // Melhor de todos os tempos
+    const best = this.elitePopulation[0];
+    const generationBest = allResults[0];
+
+    // Atualiza modelo principal com o melhor de todos os tempos
     if (best.weights) {
-      this.bestWeightsData = best.weights;
-      console.log("🧬 Evolução: Novo melhor cérebro encontrado!");
-      console.log(
-        "DEBUG: Média do primeiro peso mutado:",
-        best.weights[0].data[0]
-      );
-      // CRÍTICO: Atualiza o cérebro principal com os novos pesos
-      const newWeights = this.bestWeightsData.map((w) =>
-        tf.tensor(w.data, w.shape)
-      );
+      const newWeights = best.weights.map((w) => tf.tensor(w.data, w.shape));
       aiBrain.model.setWeights(newWeights);
       newWeights.forEach((t) => t.dispose());
     }
 
+    // Registra histórico
+    this.generationHistory.push({
+      generation: this.generation,
+      bestScore: generationBest.score,
+      avgScore:
+        allResults.reduce((sum, r) => sum + r.score, 0) / allResults.length,
+      victories: allResults.filter((r) => r.victory).length,
+      eliteScore: best.score,
+    });
+
     // Atualiza UI
     const statusEl = document.getElementById("ia-status");
-    if (statusEl)
-      statusEl.innerText = `Gen ${this.generation}: Score ${best.score.toFixed(
-        0
-      )} ${best.victory ? "🏆" : ""}`;
+    if (statusEl) {
+      const top5Scores = this.elitePopulation
+        .map((e) => e.score.toFixed(0))
+        .join(", ");
+      statusEl.innerText = `Gen ${this.generation} | Top5: [${top5Scores}]`;
+    }
 
     const cycleEl = document.getElementById("cycle-count");
     if (cycleEl) cycleEl.innerText = `Gen ${this.generation}`;
 
-    // Feedback Visual no Console
-    if (best.victory) {
+    // Console com Top 5
+    console.log(`\n${"=".repeat(60)}`);
+    console.log(`📊 GERAÇÃO ${this.generation} - Resumo:`);
+    console.log(`${"=".repeat(60)}`);
+    console.log(`🏆 TOP 5 ELITE (de todas as gerações):`);
+    this.elitePopulation.forEach((elite, idx) => {
+      const medal = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"][idx];
+      const victoryIcon = elite.victory ? "✅" : "❌";
       console.log(
-        `%c 🏆 Gen ${this.generation}: SCORE ${best.score.toFixed(
-          1
-        )} (VITÓRIA!) `,
-        "background: #2ecc71; color: black; font-weight: bold; padding: 4px; font-size: 14px"
+        `  ${medal} Score: ${elite.score.toFixed(1).padStart(8)} ${victoryIcon} (Gen ${elite.generation})`,
       );
+    });
 
+    console.log(`\n📈 Esta Geração:`);
+    console.log(
+      `  Melhor: ${generationBest.score.toFixed(1)} ${generationBest.victory ? "🏆" : "💀"}`,
+    );
+    console.log(
+      `  Média: ${(allResults.reduce((s, r) => s + r.score, 0) / allResults.length).toFixed(1)}`,
+    );
+    console.log(
+      `  Vitórias: ${allResults.filter((r) => r.victory).length}/${POPULATION_SIZE}`,
+    );
+    console.log(`${"=".repeat(60)}\n`);
+
+    // Salva se houver vitória
+    if (generationBest.victory) {
       totalWins++;
       updateStats();
       saveBrainToStorage();
-    } else {
-      console.log(
-        `%c ❌ Gen ${this.generation}: Melhor Score ${best.score.toFixed(
-          1
-        )} (Derrota) `,
-        "color: #e74c3c; font-weight: bold;"
-      );
     }
 
     this.generation++;
@@ -178,6 +240,14 @@ class GeneticManager {
   stop() {
     this.workers.forEach((w) => w.worker.terminate());
     this.workers = [];
+
+    // Mostra resumo final
+    if (this.generationHistory.length > 0) {
+      console.log("\n📊 RESUMO DO TREINAMENTO:");
+      console.log(`Gerações: ${this.generationHistory.length}`);
+      console.log(`Melhor Score: ${this.elitePopulation[0].score.toFixed(1)}`);
+      console.log(`Vitórias Totais: ${totalWins}`);
+    }
   }
 }
 
@@ -190,12 +260,12 @@ async function startGeneticTraining() {
   if (manager && manager.isTraining) {
     manager.isTraining = false;
     manager.stop();
-    btn.innerText = "🧬 Escolinha Multi-Core";
+    btn.innerText = "🧬 Escolinha Genética";
     btn.style.background = "#9b59b6";
     return;
   }
 
-  btn.innerText = "🛑 Parar (Multi-Core)";
+  btn.innerText = "🛑 Parar (Genético)";
   btn.style.background = "#c0392b";
 
   manager = new GeneticManager();
@@ -203,7 +273,6 @@ async function startGeneticTraining() {
 
   while (manager.isTraining) {
     await manager.evolve();
-    // Pequena pausa para UI respirar e não travar o navegador
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 100)); // Pausa para UI
   }
 }

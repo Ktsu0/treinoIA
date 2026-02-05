@@ -16,10 +16,14 @@ const config = {
 
 function startGame(level) {
   activeDiff = level;
-  const c = config[level];
-  rows = c.r;
-  cols = c.c;
-  mines = c.m;
+
+  // Se for "custom", usa as variáveis globais já configuradas externamente (pelo Curriculum)
+  if (level !== "custom") {
+    const c = config[level];
+    rows = c.r;
+    cols = c.c;
+    mines = c.m;
+  }
 
   const diffLabel = document.getElementById("diff-label");
   if (diffLabel) diffLabel.innerText = level.toUpperCase();
@@ -34,18 +38,21 @@ function resetGame() {
   seconds = 0;
   isGameOver = false;
 
-  const timerEl = document.getElementById("timer");
-  const mineEl = document.getElementById("mine-count");
-  if (timerEl) timerEl.innerText = "0";
-  if (mineEl) mineEl.innerText = mines;
+  // OTIMIZAÇÃO: No modo silencioso, pula TODA a manipulação DOM
+  if (!silentMode) {
+    const timerEl = document.getElementById("timer");
+    const mineEl = document.getElementById("mine-count");
+    if (timerEl) timerEl.innerText = "0";
+    if (mineEl) mineEl.innerText = mines;
 
-  const grid = document.getElementById("grid");
-  if (grid) {
-    grid.innerHTML = "";
-    // Tamanho dinâmico baseado no número de colunas
-    const cellSize = cols <= 9 ? 40 : cols <= 16 ? 32 : 24;
-    grid.style.gridTemplateColumns = `repeat(${cols}, ${cellSize}px)`;
-    grid.style.gridTemplateRows = `repeat(${rows}, ${cellSize}px)`;
+    const grid = document.getElementById("grid");
+    if (grid) {
+      grid.innerHTML = "";
+      // Tamanho dinâmico baseado no número de colunas
+      const cellSize = cols <= 9 ? 40 : cols <= 16 ? 32 : 24;
+      grid.style.gridTemplateColumns = `repeat(${cols}, ${cellSize}px)`;
+      grid.style.gridTemplateRows = `repeat(${rows}, ${cellSize}px)`;
+    }
   }
 
   board = Array.from({ length: rows }, () =>
@@ -54,7 +61,7 @@ function resetGame() {
       revealed: false,
       flagged: false,
       count: 0,
-    }))
+    })),
   );
 
   // Plantar minas
@@ -82,23 +89,26 @@ function resetGame() {
     }
   }
 
-  // Renderizar células
-  if (grid) {
-    const cellSize = cols <= 9 ? 40 : cols <= 16 ? 32 : 24;
+  // OTIMIZAÇÃO: Renderizar células apenas se NÃO estiver em modo silencioso
+  if (!silentMode) {
+    const grid = document.getElementById("grid");
+    if (grid) {
+      const cellSize = cols <= 9 ? 40 : cols <= 16 ? 32 : 24;
 
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const el = document.createElement("div");
-        el.classList.add("cell");
-        el.id = `cell-${r}-${c}`;
-        el.style.minWidth = `${cellSize}px`;
-        el.style.minHeight = `${cellSize}px`;
-        el.addEventListener("click", () => handleClick(r, c));
-        el.addEventListener("contextmenu", (e) => {
-          e.preventDefault();
-          handleRightClick(r, c);
-        });
-        grid.appendChild(el);
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const el = document.createElement("div");
+          el.classList.add("cell");
+          el.id = `cell-${r}-${c}`;
+          el.style.minWidth = `${cellSize}px`;
+          el.style.minHeight = `${cellSize}px`;
+          el.addEventListener("click", () => handleClick(r, c));
+          el.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+            handleRightClick(r, c);
+          });
+          grid.appendChild(el);
+        }
       }
     }
   }
@@ -131,9 +141,11 @@ function handleClick(r, c) {
   if (isGameOver || board[r][c].revealed || board[r][c].flagged)
     return "invalid";
 
-  // Remove marcação de "pensamento" quando o humano ou a IA clica
-  const el = document.getElementById(`cell-${r}-${c}`);
-  if (el) el.classList.remove("ia-target");
+  // Remove marcação de "pensamento" quando o humano ou a IA clica (apenas modo visual)
+  if (!silentMode) {
+    const el = document.getElementById(`cell-${r}-${c}`);
+    if (el) el.classList.remove("ia-target");
+  }
 
   if (seconds === 0 && !trainingMode) startTimer();
 
@@ -198,6 +210,10 @@ function checkWin() {
 function revealAllMines() {
   isGameOver = true;
   clearInterval(timerInterval);
+
+  // No modo silencioso, não precisa revelar visualmente
+  if (silentMode) return;
+
   board.forEach((row, r) =>
     row.forEach((cell, c) => {
       if (cell.mine) {
@@ -207,7 +223,7 @@ function revealAllMines() {
           el.innerText = "💣";
         }
       }
-    })
+    }),
   );
 }
 
@@ -252,7 +268,7 @@ function saveRecord(time) {
   const top10 = records.slice(0, 10);
   localStorage.setItem(
     `minesweeper_ranking_${activeDiff}`,
-    JSON.stringify(top10)
+    JSON.stringify(top10),
   );
   renderRanking();
 }
@@ -278,7 +294,7 @@ function renderRanking() {
             <td>${rec.time}s</td>
             <td>${rec.date}</td>
         </tr>
-    `
+    `,
     )
     .join("");
 }

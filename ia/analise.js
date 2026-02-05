@@ -38,7 +38,7 @@ function analisarIA(nomeArquivo) {
 
     if (totalValores === 0) {
       console.log(
-        "❌ Continuo sem encontrar pesos. Verifique a estrutura do JSON."
+        "❌ Continuo sem encontrar pesos. Verifique a estrutura do JSON.",
       );
       return;
     }
@@ -73,4 +73,4 @@ function analisarIA(nomeArquivo) {
 }
 
 analisarIA("brain-data.json");
-analisarIA("brain-backup-1770233689277.json");
+analisarIA("brain-backup-1770250461464.json");

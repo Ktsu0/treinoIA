@@ -23,6 +23,7 @@
 
         <div class="ai-controls">
             <button class="btn-ia" onclick="trainIA()">🧠 Treinar IA</button>
+            <button class="btn-ia" style="background: #e67e22;" onclick="trainWithCurriculum()">🎓 Curriculum Learning</button>
             <button id="btn-genetic" class="btn-ia" style="background: #9b59b6;" onclick="startGeneticTraining()">🧬 Escolinha Genética</button>
             <button id="pause-btn" class="btn-pause" style="display:none" onclick="togglePause()">⏸️ Pausar</button>
             <button class="btn-download" onclick="exportBrain()">📥 Baixar Cérebro</button>
@@ -99,6 +100,7 @@
     <script src="game.js"></script>
     <script src="ia.js"></script>
     <script src="genetic.js"></script>
+    <script src="curriculum.js"></script>
     
     <script>
         // Inicialização
@@ -169,7 +171,8 @@
                     
                     if(savedModel && metadata) {
                         aiBrain.model = savedModel;
-                        aiBrain.epsilon = metadata.epsilon || 0.2;
+                        // ✅ Garante epsilon mínimo de 0.2 para continuar explorando
+                        aiBrain.epsilon = Math.max(metadata.epsilon || 0.2, 0.2);
                         currentCycle = metadata.currentCycle || 0;
                         totalWins = metadata.totalWins || 0;
                         
@@ -177,6 +180,7 @@
                         document.getElementById('ia-status').innerText = `Cérebro Carregado! (${currentCycle} ciclos)`;
                         console.log("✅ Modelo carregado do LocalStorage!");
                         console.log(`📊 Ciclos: ${currentCycle} | Vitórias: ${totalWins}`);
+                        console.log(`🔄 Epsilon ajustado para: ${aiBrain.epsilon.toFixed(3)} (mín: 0.2)`);
                         loaded = true;
                     }
                 } catch(e) {

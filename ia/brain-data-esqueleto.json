@@ -159,6 +159,5 @@
     "keras_version": "tfjs-layers 4.15.0",
     "backend": "tensor_flow.js"
   },
-  "weights": [],
-  "REMARK": "Este arquivo e apenas um modelo estrutural (esqueleto). Para resetar a IA, voce deve carregar este arquivo e o sistema iniciara com pesos aleatorios novos ou voce pode colar novos pesos aqui."
+  "weights": []
 }

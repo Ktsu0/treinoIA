@@ -6,14 +6,30 @@ var currentCycle = 0;
 var totalWins = 0;
 
 class MinesweeperAI {
-  constructor(rows, cols) {
+  constructor(rows = 9, cols = 9) {
+    // Garante que são números válidos
+    rows = rows || 9;
+    cols = cols || 9;
+
+    // Define o tamanho MÁXIMO do cérebro (o objetivo final)
+    // Se receber rows/cols menores, assumimos que é o tamanho atual do jogo,
+    // mas fixamos a arquitetura interna em pelo menos 9x9 para garantir consistência.
+    this.maxRows = Math.max(rows, 9);
+    this.maxCols = Math.max(cols, 9);
+
+    // Tamanho ATUAL do jogo (pode mudar dinamicamente)
+    this.currentRows = rows;
+    this.currentCols = cols;
+
+    // Mantém compatibilidade com código que acessa .rows/.cols
     this.rows = rows;
     this.cols = cols;
+
     this.gamma = 0.95;
-    this.learningRate = 0.0003;
-    this.epsilon = 1.0; // Começa com 100% exploração (para aprender do zero)
-    this.epsilonMin = 0.05; // Mínimo de 5% exploração
-    this.epsilonDecay = 0.998; // Decay mais lento para explorar mais no início (antes: 0.995)
+    this.learningRate = 0.003;
+    this.epsilon = 1.0;
+    this.epsilonMin = 0.2;
+    this.epsilonDecay = 0.9995;
     this.memory = [];
     this.maxMemory = 10000;
     this.batchSize = 32;
@@ -24,12 +40,12 @@ class MinesweeperAI {
     const model = tf.sequential();
     model.add(
       tf.layers.conv2d({
-        inputShape: [this.rows, this.cols, 3],
+        inputShape: [this.maxRows, this.maxCols, 3], // Entrada FIXA no tamanho máximo
         kernelSize: 3,
         filters: 32,
         activation: "relu",
         padding: "same",
-      })
+      }),
     );
     model.add(
       tf.layers.conv2d({
@@ -37,16 +53,16 @@ class MinesweeperAI {
         filters: 64,
         activation: "relu",
         padding: "same",
-      })
+      }),
     );
     model.add(tf.layers.flatten());
     model.add(tf.layers.dense({ units: 128, activation: "relu" }));
     model.add(tf.layers.dropout({ rate: 0.2 }));
     model.add(
       tf.layers.dense({
-        units: this.rows * this.cols * 2,
+        units: this.maxRows * this.maxCols * 2, // Saída FIXA no tamanho máximo
         activation: "linear",
-      })
+      }),
     );
     model.compile({
       optimizer: tf.train.adam(this.learningRate),
@@ -57,70 +73,103 @@ class MinesweeperAI {
 
   getState(board) {
     return tf.tidy(() => {
-      const numCells = this.rows * this.cols;
-      const buffer = new Float32Array(numCells * 3);
-      const flat = board.flat();
+      // Cria buffer do tamanho MÁXIMO
+      const numCellsMax = this.maxRows * this.maxCols;
+      const buffer = new Float32Array(numCellsMax * 3).fill(-1); // -1 = Fora do tabuleiro
 
-      for (let i = 0; i < numCells; i++) {
-        const cell = flat[i];
-        let value = 0;
-        if (cell.revealed) value = (cell.count + 1) / 9;
-        const hidden = cell.revealed ? 0 : 1;
-        const flagged = cell.flagged ? 1 : 0;
+      const flatBoard = board.flat();
 
-        const base = i * 3;
-        buffer[base] = value;
-        buffer[base + 1] = hidden;
-        buffer[base + 2] = flagged;
+      // Preenche apenas a área ativa do jogo atual
+      for (let r = 0; r < this.currentRows; r++) {
+        for (let c = 0; c < this.currentCols; c++) {
+          // Índice no tabuleiro pequeno
+          const iSmall = r * this.currentCols + c;
+          // Índice mapeado para o buffer GRANDE (alinhado ao topo-esquerda)
+          const iBig = r * this.maxCols + c;
+
+          const cell = flatBoard[iSmall];
+          const base = iBig * 3;
+
+          let value = 0;
+          if (cell.revealed) value = (cell.count + 1) / 9;
+
+          const hidden = cell.revealed ? 0 : 1;
+          const flagged = cell.flagged ? 1 : 0;
+
+          buffer[base] = value;
+          buffer[base + 1] = hidden;
+          buffer[base + 2] = flagged;
+        }
       }
-      return tf.tensor3d(buffer, [this.rows, this.cols, 3]).expandDims(0);
+
+      return tf.tensor3d(buffer, [this.maxRows, this.maxCols, 3]).expandDims(0);
     });
   }
 
   async chooseAction(state) {
-    const numCells = this.rows * this.cols;
     const flatBoard = board.flat();
 
-    // EXPLORAÇÃO: Escolhe ação aleatória válida
+    // EXPLORAÇÃO
     if (Math.random() < this.epsilon) {
+      // Escolhe apenas entre células válidas do tabuleiro ATUAL
       const validActions = [];
-      for (let i = 0; i < numCells; i++) {
+      const numCellsCurrent = this.currentRows * this.currentCols;
+
+      for (let i = 0; i < numCellsCurrent; i++) {
         if (!flatBoard[i].revealed) {
-          validActions.push(i);
-          validActions.push(i + numCells);
+          validActions.push(i); // Clique
+          validActions.push(i + numCellsCurrent); // Bandeira (offset relativo ao atual)
         }
       }
-      if (validActions.length === 0)
-        return Math.floor(Math.random() * (numCells * 2));
-      return validActions[Math.floor(Math.random() * validActions.length)];
+
+      if (validActions.length === 0) return 0; // Fallback
+
+      const actionSmall =
+        validActions[Math.floor(Math.random() * validActions.length)];
+
+      // Retorna o índice "pequeno" para o jogo usar diretamente
+      // (O jogo não sabe sobre o cérebro grande)
+      return actionSmall;
     }
 
-    // EXPLORAÇÃO: Usa rede neural mas filtra ações inválidas
+    // EXPLORAÇÃO COM REDE
     return tf.tidy(() => {
       const prediction = this.model.predict(state);
       const predData = prediction.dataSync();
 
-      let bestAction = 0;
+      let bestActionSmall = 0; // Este é o índice que o jogo entende
       let bestValue = -Infinity;
 
-      // Encontra melhor ação válida em O(N)
-      for (let i = 0; i < numCells; i++) {
-        if (!flatBoard[i].revealed) {
-          // Clique
-          if (predData[i] > bestValue) {
-            bestValue = predData[i];
-            bestAction = i;
-          }
-          // Bandeira
-          const flagIdx = i + numCells;
-          if (predData[flagIdx] > bestValue) {
-            bestValue = predData[flagIdx];
-            bestAction = flagIdx;
+      const numCellsMax = this.maxRows * this.maxCols;
+      const numCellsCurrent = this.currentRows * this.currentCols;
+
+      // Varre apenas a área válida do tabuleiro atual
+      for (let r = 0; r < this.currentRows; r++) {
+        for (let c = 0; c < this.currentCols; c++) {
+          const iSmall = r * this.currentCols + c; // Índice no jogo
+          const iBig = r * this.maxCols + c; // Índice na rede neural
+
+          if (!flatBoard[iSmall].revealed) {
+            // Verificar output de CLIQUE da rede
+            const valClick = predData[iBig];
+            if (valClick > bestValue) {
+              bestValue = valClick;
+              bestActionSmall = iSmall;
+            }
+
+            // Verificar output de BANDEIRA da rede
+            // O offset de bandeira na rede é numCellsMax
+            const valFlag = predData[iBig + numCellsMax];
+            if (valFlag > bestValue) {
+              bestValue = valFlag;
+              // O offset de bandeira para o jogo é numCellsCurrent
+              bestActionSmall = iSmall + numCellsCurrent;
+            }
           }
         }
       }
 
-      return bestAction;
+      return bestActionSmall;
     });
   }
 
@@ -240,7 +289,7 @@ async function exportBrain() {
     console.log("\n" + jsonString);
 
     alert(
-      `✅ Cérebro exportado!\n\n📥 Arquivo baixado\n\n📋 Copie o JSON do console e cole em 'ia/brain-data.json'`
+      `✅ Cérebro exportado!\n\n📥 Arquivo baixado\n\n📋 Copie o JSON do console e cole em 'ia/brain-data.json'`,
     );
   } catch (err) {
     console.error("Erro ao exportar:", err);
@@ -256,7 +305,7 @@ async function importBrain(file) {
     // Recria o cérebro com as dimensões corretas
     aiBrain = new MinesweeperAI(
       brainData.metadata.rows,
-      brainData.metadata.cols
+      brainData.metadata.cols,
     );
 
     // Restaura metadados
@@ -285,13 +334,12 @@ async function importBrain(file) {
 
     // Atualiza UI
     updateStats();
-    document.getElementById(
-      "ia-status"
-    ).innerText = `Cérebro Carregado! (${currentCycle} ciclos)`;
+    document.getElementById("ia-status").innerText =
+      `Cérebro Carregado! (${currentCycle} ciclos)`;
 
     console.log("✅ Cérebro importado com sucesso!");
     alert(
-      `Cérebro carregado!\nCiclos: ${currentCycle}\nVitórias: ${totalWins}`
+      `Cérebro carregado!\nCiclos: ${currentCycle}\nVitórias: ${totalWins}`,
     );
   } catch (err) {
     console.error("Erro ao importar:", err);
@@ -328,8 +376,13 @@ async function saveBrainToStorage() {
         epsilon: aiBrain.epsilon,
         currentCycle: currentCycle,
         totalWins: totalWins,
+        // Salva estado do Curriculum se disponível
+        curriculumLevel:
+          typeof curriculum !== "undefined" ? curriculum.currentLevel : 0,
+        curriculumWins:
+          typeof curriculum !== "undefined" ? curriculum.levelWins : 0,
         timestamp: new Date().toISOString(),
-      })
+      }),
     );
     console.log("💾 Progresso salvo!");
   } catch (err) {
@@ -406,14 +459,21 @@ async function trainIA() {
     // Atualiza estado do turbo a cada ciclo principal
     silentMode = turboCheckbox ? turboCheckbox.checked : false;
 
-    const gamesInBatch = silentMode ? 2000 : 1;
+    const gamesInBatch = silentMode ? 5000 : 1; // Aumentado de 2000 para 5000
 
     for (let g = 0; g < gamesInBatch; g++) {
       if (trainingCanceled) break; // Sai rápido se cancelou
       if (trainingPaused) break; // Sai agora se pausou (para entrar no loop de espera externo)
 
       currentCycle++;
-      startGame(activeDiff); // Reseta tabuleiro
+
+      // CORREÇÃO: Sempre chama startGame no primeiro jogo para inicializar variáveis
+      // Depois, no modo turbo, usa resetGame para performance
+      if (g === 0 || !silentMode) {
+        startGame(activeDiff); // Inicializa/reseta com visualização
+      } else {
+        resetGame(); // Apenas reseta lógica (modo turbo)
+      }
 
       // Variáveis locais da partida
       let episodeReward = 0;
@@ -445,33 +505,35 @@ async function trainIA() {
           }
         }
 
-        // 3. Executa Ação e Calcula Recompensa Inteligente
+        // 3. Executa Ação e Calcula Recompensa
         let reward = 0;
         const cellsRevealedBefore = board
           .flat()
           .filter((c) => c.revealed).length;
-        const currentFlags = board.flat().filter((c) => c.flagged).length;
 
         if (isFlag) {
-          // Calculamos o multiplicador de progressão baseado no número de bandeiras
-          // Isso garante que o peso da decisão aumente conforme o jogo avança
-          const flagMultiplier = 5 * currentFlags;
+          // Ação de BANDEIRA
+          const wasFlagged = board[r][c].flagged;
+          handleRightClick(r, c); // Toggle bandeira
+          const isMine = board[r][c].mine;
 
-          if (board[r][c].flagged) {
-            const wasCorrect = board[r][c].mine;
-            handleRightClick(r, c); // Desmarcar
-
-            if (wasCorrect) {
-              // PUNIÇÃO PROGRESSIVA: Retirar uma bandeira que estava CERTA
-              // Quanto mais bandeiras no jogo, mais grave é o erro de tirar uma correta
-              reward = -(60 + flagMultiplier);
+          if (!wasFlagged) {
+            // MARCOU uma bandeira
+            if (isMine) {
+              reward = 50; // ✅ Acertou! Marcou uma mina
             } else {
-              // RECOMPENSA PROGRESSIVA: Tirar uma bandeira que estava ERRADA
-              // Premiamos a IA por "perceber" o erro e corrigi-lo
-              reward = 15 + Math.floor(flagMultiplier / 2);
+              reward = -30; // ❌ Errou! Marcou uma célula segura
+            }
+          } else {
+            // DESMARCOU uma bandeira
+            if (isMine) {
+              reward = -60; // ❌ Erro grave! Desmarcou uma mina correta
+            } else {
+              reward = 20; // ✅ Bom! Corrigiu um erro
             }
           }
         } else {
+          // Ação de REVELAR
           const result = handleClick(r, c);
           const cellsRevealedAfter = board
             .flat()
@@ -479,17 +541,15 @@ async function trainIA() {
           const cellsRevealed = cellsRevealedAfter - cellsRevealedBefore;
 
           if (result === "mine") {
-            reward = -100; // Morte é MUITO grave (antes: -500)
+            reward = -100; // ❌ Morte
           } else if (result === "safe") {
-            // REBALANCEADO: Recompensa proporcional ao progresso
-            reward = 10 + cellsRevealed * 3;
+            reward = 10 + cellsRevealed * 5; // ✅ Revelou células (mais = melhor)
           } else if (result === "win") {
-            // REBALANCEADO: Bônus de vitória + bônus por eficiência
             const efficiency = numCells / Math.max(moves, 1);
-            reward = 2000 + efficiency * 100;
+            reward = 2000 + efficiency * 100; // 🏆 VITÓRIA!
             won = true;
           } else {
-            reward = -10; // Movimento inválido (antes: -20)
+            reward = -5; // Movimento inválido (já revelada ou marcada)
           }
         }
 
@@ -505,13 +565,14 @@ async function trainIA() {
         moves++;
 
         // 6. Treina (Replay)
-        // No modo turbo: Treina a cada 10 passos para speed. No normal: a cada passo.
-        if (!silentMode || moves % 10 === 0) {
+        // No modo turbo: Treina a cada 50 passos para speed máximo. No normal: a cada passo.
+        if (!silentMode) {
+          await aiBrain.replay();
+          await tf.nextFrame(); // Libera frame apenas no modo visual
+        } else if (moves % 50 === 0) {
+          // No modo turbo, treina muito menos frequentemente
           await aiBrain.replay();
         }
-
-        // Se visual, libera frame
-        if (!silentMode) await tf.nextFrame();
       }
 
       // Fim da partida
@@ -522,12 +583,13 @@ async function trainIA() {
         recentWins++;
         console.log(
           `%c 🏆 VITÓRIA NO CICLO ${currentCycle}! (Eps: ${aiBrain.epsilon.toFixed(
-            3
+            3,
           )})`,
-          "color: #2ecc71; font-weight: bold; font-size: 14px; background: #000; padding: 4px;"
+          "color: #2ecc71; font-weight: bold; font-size: 14px; background: #000; padding: 4px;",
         );
+        // OTIMIZAÇÃO: Salva muito menos frequentemente no modo turbo
         if (silentMode) {
-          if (totalWins % 100 === 0) saveBrainToStorage();
+          if (totalWins % 500 === 0) saveBrainToStorage(); // A cada 500 vitórias
         } else {
           saveBrainToStorage();
         }
@@ -535,10 +597,11 @@ async function trainIA() {
 
       // Log Periódico no console para não floodar
       if (currentCycle % 100 === 0) {
+        const avgReward = episodeReward / Math.max(moves, 1);
         console.log(
           `Ciclo ${currentCycle} | Wins: ${totalWins} | Epsilon: ${aiBrain.epsilon.toFixed(
-            3
-          )}`
+            3,
+          )} | Reward: ${episodeReward.toFixed(1)} | Avg: ${avgReward.toFixed(2)}`,
         );
       }
     } // Fim do For (Batch)
@@ -546,8 +609,8 @@ async function trainIA() {
     // === RESUMO DO LOTE (Aparece a cada atualização de tela - 500 jogos) ===
     console.log(
       `[LOTE] Ciclo ${currentCycle} | Total Wins: ${totalWins} | Recentes: ${recentWins} | Epsilon: ${aiBrain.epsilon.toFixed(
-        4
-      )}`
+        4,
+      )}`,
     );
     recentWins = 0; // Reseta contador de wins recentes
 
@@ -558,11 +621,17 @@ async function trainIA() {
         silentMode ? "ON" : "OFF"
       })`;
 
-    // Libera a thread para a UI não travar totalmente
-    await tf.nextFrame();
+    // OTIMIZAÇÃO: Libera a thread apenas no modo visual
+    if (!silentMode) {
+      await tf.nextFrame();
+    } else {
+      // No modo turbo, apenas um micro-delay para não travar completamente o navegador
+      await new Promise((r) => setTimeout(r, 0));
+    }
 
-    // Salva periodicamente (A cada ~2500 partidas)
-    if (currentCycle % 2500 < gamesInBatch) {
+    // Salva periodicamente (A cada ~5000 partidas no turbo, 2500 no normal)
+    const saveInterval = silentMode ? 5000 : 2500;
+    if (currentCycle % saveInterval < gamesInBatch) {
       console.log(`✅ Backup Automático (Ciclo ${currentCycle})`);
       await saveBrainToStorage();
     }
